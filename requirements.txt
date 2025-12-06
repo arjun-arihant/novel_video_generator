@@ -4,3 +4,13 @@ lxml
 ftfy
 regex
 tqdm
+edge-tts
+aiofiles
+PyYAML
+google-generativeai
+moviepy
+python-dotenv
+pillow
+requests
+google-cloud-texttospeech
+tenacity

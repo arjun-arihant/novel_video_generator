@@ -31,7 +31,7 @@ def clean_text(text: str) -> str:
     # Normalize whitespace
     text = " ".join(text.split())
     return text.strip()
-
+ 
 def html_to_paragraphs(html_content: str) -> List[str]:
     """Extract clean paragraphs from HTML"""
     soup = BeautifulSoup(html_content, "xml")
@@ -57,6 +57,8 @@ def extract_chapters(epub_path: str) -> List[Dict]:
     items = list(book.get_items_of_type(ebooklib.ITEM_DOCUMENT))
     
     chapters = []
+    chapter_num = 1  # Use separate counter for actual chapters
+    
     for idx, item in enumerate(items):
         content = item.get_content().decode("utf-8", errors="replace")
         paragraphs = html_to_paragraphs(content)
@@ -67,29 +69,40 @@ def extract_chapters(epub_path: str) -> List[Dict]:
         # Try to get title from HTML
         soup = BeautifulSoup(content, "xml")
         title_tag = soup.find(["h1", "h2"])
-        title = clean_text(title_tag.get_text()) if title_tag else f"Chapter {idx + 1}"
+        title = clean_text(title_tag.get_text()) if title_tag else f"Chapter {chapter_num}"
         
         chapters.append({
-            "id": idx,
+            "id": chapter_num,
             "title": title,
             "paragraphs": paragraphs,
             "word_count": sum(len(p.split()) for p in paragraphs)
         })
+        
+        chapter_num += 1
     
     return chapters
 
-def process_epub(epub_path: str, output_dir: str):
+def process_epub(epub_path: str, book_id: str = None, output_dir: str = None):
     """Process EPUB and save cleaned chapters as JSON"""
+    epub_name = Path(epub_path).stem
+    
+    # Use book_id if provided, otherwise use epub filename
+    book_id = book_id or epub_name
+    
+    # Default to data/{book_id}/chapters if no output_dir specified
+    if output_dir is None:
+        output_dir = f"data/{book_id}/chapters"
+    
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    epub_name = Path(epub_path).stem
     logger.info(f"Processing: {epub_path}")
+    logger.info(f"Book ID: {book_id}")
     
     chapters = extract_chapters(epub_path)
     
     for chapter in tqdm(chapters, desc="Saving chapters"):
-        filename = f"chapter{chapter['id']:04d}.json"
+        filename = f"{book_id}_ch{chapter['id']:04d}.json"
         with open(output_path / filename, "w", encoding="utf-8") as f:
             json.dump(chapter, f, ensure_ascii=False, indent=2)
     
@@ -97,9 +110,10 @@ def process_epub(epub_path: str, output_dir: str):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Clean EPUB and extract chapters")
     parser.add_argument("epub", help="Path to EPUB file")
-    parser.add_argument("--out", default="data/chapters", help="Output directory")
+    parser.add_argument("--book-id", help="Book identifier (default: EPUB filename)")
+    parser.add_argument("--out", help="Output directory (default: data/{book_id}/chapters)")
     args = parser.parse_args()
     
-    process_epub(args.epub, args.out)
+    process_epub(args.epub, args.book_id, args.out)

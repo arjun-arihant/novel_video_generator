@@ -1,0 +1,66 @@
+{
+  "characters": {
+    "Chen Mobai": {
+      "name": "Chen Mobai",
+      "aliases": [
+        "handsome young man"
+      ],
+      "physical_description": "handsome",
+      "personality": "Smug, diligent, ambitious, quick-thinking, envious (of top students)",
+      "role": "Protagonist"
+    },
+    "Deskmate (of Chen Mobai)": {
+      "name": "Deskmate (of Chen Mobai)",
+      "aliases": [
+        "His deskmate",
+        "his classmate"
+      ],
+      "physical_description": "face flushed with indignation",
+      "personality": "Envious, indignant, compliant (to regulations)",
+      "role": "Side character"
+    },
+    "Chai Deyun": {
+      "name": "Chai Deyun",
+      "aliases": [
+        "the homeroom teacher",
+        "The teacher"
+      ],
+      "physical_description": "typically stern expression, rare smile, profound sentiment, softened gaze",
+      "personality": "Stern, observant, appreciative of student progress, sentimental",
+      "role": "Side character, authority figure"
+    },
+    "Two beautiful classmates": {
+      "name": "Two beautiful classmates",
+      "aliases": [
+        "the two beautiful classmates"
+      ],
+      "physical_description": "beautiful",
+      "personality": "",
+      "role": "Minor background characters"
+    },
+    "Song Zheng": {
+      "name": "Song Zheng",
+      "aliases": [],
+      "physical_description": "",
+      "personality": "Achiever, elite student",
+      "role": "Side character, benchmark"
+    },
+    "Yan Bingxuan": {
+      "name": "Yan Bingxuan",
+      "aliases": [],
+      "physical_description": "",
+      "personality": "Achiever, elite student",
+      "role": "Side character, benchmark"
+    },
+    "Classmate (late to cultivation room)": {
+      "name": "Classmate (late to cultivation room)",
+      "aliases": [
+        "A classmate"
+      ],
+      "physical_description": "",
+      "personality": "Impatient, frustrated, urgent",
+      "role": "Minor background character"
+    }
+  },
+  "last_updated_chapter": "ihacw_ch0001"
+}
