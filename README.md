@@ -1,363 +1,244 @@
 # Novel Video Generator
 
-A Python pipeline that converts novel chapters (text) into animated videos with narration.
+A streamlined Python pipeline that converts novel chapters (text) into animated videos with narration.
 
 ## Features
 
-- **Scene Extraction**: Uses **Gemini 2.5 Flash** to analyze text and extract visual scenes.
-- **Image Generation**: Uses **Pollinations.ai Flux models** to generate high-quality images.
-- **Style**: Enforces a **Chinese Manhua/Webtoon** aesthetic.
-- **Narration**: Uses **Gemini 2.5 Flash Preview TTS** for high-quality audio.
-- **Animation**: Applies **Ken Burns effect** (Pan/Zoom) to static images.
-- **Video Assembly**: Combines images, audio, and effects into a final `.mp4`.
+- **Scene Extraction**: Uses **Gemini 2.5 Flash** to analyze text and extract visual scenes
+- **Image Generation**: Uses **Pollinations.ai Flux models** for Manhua-style images
+- **Text-to-Speech**: Uses **Gemini 2.5 Flash Preview TTS** for natural narration
+- **Video Assembly**: Combines images and audio with **Ken Burns effects** (pan/zoom)
+- **Unified CLI**: Single command-line interface for all operations
 
 ## Prerequisites
 
 - Python 3.10+
-- **Gemini API Key** (for text processing, image generation, and TTS)
-- `ffmpeg` installed and in your system PATH.
+- **Gemini API Key** (for scene extraction and TTS)
+- `ffmpeg` installed and in your system PATH
 
-## Setup
+## Quick Start
 
-1.  **Clone the repository**:
-    ```bash
-    git clone <repo-url>
-    cd novel_video_generator
-    ```
+### 1. Setup
 
-2.  **Install dependencies**:
-    ```bash
-    python -m venv .venv
-    .\.venv\Scripts\Activate
-    pip install -r requirements.txt
-    ```
+```bash
+# Clone and navigate to repository
+git clone <repo-url>
+cd novel_video_generator
 
-3.  **Environment Variables**:
-    Create a `.env` file in the root directory:
-    ```env
-    GEMINI_API_KEY=your_gemini_api_key
-    ```
+# Create virtual environment
+python -m venv .venv
 
-## Usage
+# Activate (Windows PowerShell)
+.\.venv\Scripts\Activate
 
-Run the full pipeline on a chapter file:
+# Activate (Unix/MacOS)
+source .venv/bin/activate
 
-```powershell
-$env:PYTHONPATH="."; .\.venv\Scripts\python.exe scripts/run_pipeline.py --chapter data/ihacw/chapters/ihacw_ch0001.json
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. Configure
+
+Create a `.env` file in the root directory:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+### 3. Run
+
+```bash
+# Run full pipeline
+python cli.py pipeline data/ihacw/chapters/ihacw_ch0001.json
+
+# Or run individual steps
+python cli.py extract chapter.json
+python cli.py images scenes.json
+python cli.py audio scenes.json
+python cli.py video scenes.json
+```
+
+## CLI Commands
+
+The unified CLI provides the following commands:
+
+### Full Pipeline
+```bash
+python cli.py pipeline <chapter.json> [-o output_dir]
+```
+Runs the complete pipeline: extraction → images → audio → video.
+
+### Individual Steps
+
+**Extract scenes from chapter:**
+```bash
+python cli.py extract <chapter.json> [-o scenes.json]
+```
+
+**Generate images for scenes:**
+```bash
+python cli.py images <scenes.json> [-o images_dir] [-f] [--continue-on-error]
+```
+- `-f, --force`: Regenerate existing images
+- `--continue-on-error`: Continue if some images fail
+
+**Generate audio for scenes:**
+```bash
+python cli.py audio <scenes.json> [-o audio_dir] [-c N] [--continue-on-error]
+```
+- `-c, --concurrent N`: Max concurrent generations (default: 3)
+- `--continue-on-error`: Continue if some audio fails
+
+**Build video from components:**
+```bash
+python cli.py video <scenes.json> --images <images_dir> --audio <audio_dir> [-o output.mp4]
+```
+
+### Global Options
+```bash
+python cli.py --log-level [DEBUG|INFO|WARNING|ERROR] <command> ...
+```
+
+## Project Structure
+
+```
+novel_video_generator/
+├── cli.py                 # Unified CLI entry point
+├── src/
+│   ├── common/           # Shared utilities (config, retry, validation, logging)
+│   ├── parser/           # Scene extraction (Gemini)
+│   ├── image/            # Image generation (Pollinations.ai)
+│   ├── tts/              # Text-to-speech (Gemini TTS)
+│   └── video/            # Video composition (MoviePy)
+├── configs/
+│   └── voices.yaml       # Voice configuration
+├── data/
+│   ├── ihacw/chapters/   # Sample chapter files
+│   ├── scenes/           # Extracted scenes
+│   ├── images/           # Generated images
+│   ├── audio/            # Generated audio
+│   └── videos/           # Final videos
+├── scripts_old/          # Archived scripts (reference only)
+├── requirements.txt      # Python dependencies
+└── README.md            # This file
+```
+
+## Configuration
+
+### Voice Settings
+
+Edit `configs/voices.yaml` to customize voices:
+
+```yaml
+voices:
+  narrator:
+    name: "Puck"        # Available: Puck, Charon, Kore, Fenrir, Aoede
+    provider: "gemini"
+    rate: 1.0
+    pitch: 0.0
+
+  male_protagonist:
+    name: "Fenrir"
+    provider: "gemini"
+    rate: 1.0
+    pitch: 0.0
+```
+
+## Input Format
+
+Chapter files should be JSON with this structure:
+
+```json
+{
+  "chapter_number": 1,
+  "title": "Chapter Title",
+  "content": [
+    "First paragraph...",
+    "Second paragraph...",
+    ...
+  ]
+}
 ```
 
 ## Output
 
-- **Video**: `data/videos/video_<chapter_id>.mp4`
-- **Scenes**: `data/scenes/scenes_<chapter_id>.json`
-- **Images**: `data/images/chapter_<chapter_id>/`
-- **Audio**: `data/audio/chapter_<chapter_id>/`
+Pipeline generates:
+- **Scenes**: `data/scenes/ch####_scenes.json` (3-6 scenes per chapter)
+- **Images**: `data/images/scene_###.png` (1280x720 PNG files)
+- **Audio**: `data/audio/scene_###.mp3` (MP3 narration per scene)
+- **Video**: `data/videos/chapter_####.mp4` (1920x1080, 24fps, H.264)
 
-## Configuration
+## Architecture
 
-- **Voices**: Edit `configs/voices.yaml` to change voice assignments for different characters.
+### Scene-Based Pipeline
 
----
+The pipeline operates on **scenes** (not paragraphs):
 
-## Project Structure
+1. **Scene Extraction**: Gemini analyzes chapter text and breaks it into 3-6 visual scenes
+2. **Image Generation**: Each scene gets a Manhua-style image based on visual description
+3. **Audio Generation**: Each scene's text is narrated separately
+4. **Video Assembly**: Images and audio are synced with Ken Burns effects
 
-### Directory Overview
+### Key Design Decisions
 
-```
-novel_video_generator/
-├── src/                    # Source code modules
-│   ├── parser/            # Scene extraction from text
-│   ├── image/             # Image generation
-│   ├── tts/               # Text-to-speech engine
-│   ├── video/             # Video assembly
-│   └── epub/              # EPUB processing utilities
-├── scripts/               # Executable scripts for pipeline stages
-├── configs/               # Configuration files (voices, settings)
-├── data/                  # Input data and outputs
-│   ├── ihacw/            # Novel source data
-│   │   ├── chapters/     # Processed chapter JSON files
-│   │   ├── character_db/ # Character information
-│   │   └── raw_epubs/    # Original EPUB files
-│   ├── scenes/           # Extracted scene JSON files
-│   ├── images/           # Generated images (organized by chapter)
-│   ├── audio/            # Generated audio files (organized by chapter)
-│   └── videos/           # Final output videos
-├── outputs/              # Alternative output directory
-├── notebooks/            # Jupyter notebooks for interactive testing
-└── requirements.txt      # Python dependencies
+- **Scene-based**: All components work with scene granularity for better coherence
+- **Async TTS**: Audio generation runs concurrently (3 scenes at a time)
+- **Retry logic**: Exponential backoff for API calls (10 attempts for images, 7 for scenes)
+- **Type safety**: Full type hints throughout codebase
+- **Validation**: Input validation for chapter and scene data structures
+
+## Troubleshooting
+
+**Import errors after update:**
+```bash
+# Reinstall dependencies
+pip install -r requirements.txt --force-reinstall
 ```
 
----
-
-### Source Modules (`src/`)
-
-#### 1. **Parser Module** (`src/parser/`)
-- **File**: `gemini_parser.py`
-- **Class**: `SceneExtractor`
-- **Purpose**: Analyzes chapter text using Gemini 2.5 Flash and breaks it into 3-6 visual scenes
-- **Input**: Raw chapter text (string)
-- **Output**: List of scene dictionaries with:
-  - `visual_description`: Natural language prompt for image generation
-  - `text_segment`: The narration text for this scene
-  - `characters`: List of characters present
-  - `estimated_duration`: Scene duration in seconds
-- **Used by**: `run_scene_extraction.py`, `run_pipeline.py`
-
-#### 2. **Image Module** (`src/image/`)
-- **File**: `generator.py`
-- **Class**: `ImageGenerator`
-- **Purpose**: Generates images from text prompts using Pollinations.ai Flux models
-- **Model Used**: `flux-anime` (for Manhua/webtoon style)
-- **Features**:
-  - Natural language prompts (no tag soup)
-  - Automatic style enhancement (adds "Chinese manhua webtoon style, cinematic lighting")
-  - Aspect ratio support (landscape: 1280x720, portrait: 768x1152)
-  - Retry logic with exponential backoff
-- **Input**: Text prompt, output path, aspect ratio
-- **Output**: PNG image file
-- **Used by**: `run_image_generation.py`, `run_pipeline.py`
-
-#### 3. **TTS Module** (`src/tts/`)
-- **Files**:
-  - `base.py`: Abstract base classes (`TTSProvider`, `VoiceConfig`)
-  - `gemini_engine.py`: Gemini TTS implementation using `gemini-2.5-flash-preview-tts`
-  - `manager.py`: TTS manager that loads voice configs and initializes provider
-- **Class**: `GeminiTTSProvider`
-- **Purpose**: Converts text to speech audio files
-- **Voice Support**: Multiple Gemini voices (Puck, Charon, Kore, Fenrir, Aoede)
-- **Input**: Text, output path, voice config
-- **Output**: MP3 audio file
-- **Used by**: `run_tts.py`, `run_pipeline.py`
-
-#### 4. **Video Module** (`src/video/`)
-- **File**: `composer.py`
-- **Class**: `VideoComposer`
-- **Purpose**: Assembles final video from scenes, images, and audio
-- **Features**:
-  - Ken Burns effect (zoom/pan on static images)
-  - Syncs audio duration with image display
-  - Concatenates all scenes into final video
-  - Output: 1920x1080, 24fps, H.264 codec
-- **Input**: Scenes JSON, audio directory, image directory
-- **Output**: MP4 video file
-- **Used by**: `run_video_build.py`, `run_pipeline.py`
-
-#### 5. **EPUB Module** (`src/epub/`)
-- **File**: `epub_cleaner.py`
-- **Purpose**: Utilities to extract and clean text from EPUB files
-- **Used by**: Data preprocessing scripts (not in main pipeline)
-
----
-
-### Scripts (`scripts/`)
-
-#### **Main Pipeline Script**
-
-**`run_pipeline.py`** - End-to-end automation
-```
-Input: Chapter JSON file (--chapter)
-Output: Final video in data/videos/
-
-Pipeline Flow:
-1. Load chapter → Extract scenes (SceneExtractor)
-2. Generate images for each scene (ImageGenerator)
-3. Generate audio for each scene (TTSManager)
-4. Assemble video (VideoComposer)
+**GEMINI_API_KEY not found:**
+```bash
+# Check .env file exists and contains GEMINI_API_KEY
+# Make sure .env is in the project root directory
 ```
 
-**Usage**:
-```powershell
-python scripts/run_pipeline.py --chapter data/ihacw/chapters/ihacw_ch0001.json --out data
+**ffmpeg not found:**
+```bash
+# Install ffmpeg and add to PATH
+# Windows: https://www.ffmpeg.org/download.html
+# MacOS: brew install ffmpeg
+# Linux: sudo apt install ffmpeg
 ```
 
----
+**Image generation fails:**
+- Pollinations.ai uses free tier and may have rate limits
+- Retry logic will wait up to 120 seconds between attempts
+- Use `--continue-on-error` to skip failed images
 
-#### **Individual Stage Scripts**
+## Migration from Old Scripts
 
-These scripts allow you to run each stage independently:
+If you were using the old `scripts/` folder, see `scripts_old/README.md` for migration guide.
 
-**`run_scene_extraction.py`**
-- **Input**: Chapter JSON (`--chapter`)
-- **Output**: Scenes JSON in `data/scenes/scenes_{chapter_id}.json`
-- **Module Used**: `src.parser.gemini_parser.SceneExtractor`
-- **Process**: Reads chapter text → Calls Gemini API → Saves scene data
+Key changes:
+- Unified CLI interface (all commands in `cli.py`)
+- Scene-based TTS (not paragraph-based)
+- Better error handling and validation
+- Type hints throughout
 
-**Usage**:
-```powershell
-python scripts/run_scene_extraction.py --chapter data/ihacw/chapters/ihacw_ch0001.json --out data/scenes
+## Development
+
+```bash
+# Run with debug logging
+python cli.py --log-level DEBUG pipeline chapter.json
+
+# Test individual components
+python -c "from src.parser.gemini_parser import SceneExtractor; print(SceneExtractor())"
 ```
 
----
+## License
 
-**`run_image_generation.py`**
-- **Input**: Scenes JSON (`--scenes`)
-- **Output**: PNG images in `data/images/chapter_{id}/scene_000.png`
-- **Module Used**: `src.image.generator.ImageGenerator`
-- **Process**: Reads scenes → Extracts `visual_description` → Calls Pollinations.ai → Saves images
+MIT License (see LICENSE file)
 
-**Usage**:
-```powershell
-python scripts/run_image_generation.py --scenes data/scenes/scenes_1.json --out data/images --aspect landscape
-```
+## Contributing
 
----
-
-**`run_tts.py`**
-- **Input**: Chapter JSON or Scenes JSON (`--chapter`)
-- **Output**: MP3 audio files in `data/audio/chapter_{id}/scene_000.mp3`
-- **Module Used**: `src.tts.manager.TTSManager`, `src.tts.gemini_engine.GeminiTTSProvider`
-- **Process**: Reads text segments → Calls Gemini TTS → Saves audio files
-
-**Usage**:
-```powershell
-python scripts/run_tts.py --chapter data/ihacw/chapters/ihacw_ch0001.json --out data/audio --provider gemini
-```
-
----
-
-**`run_video_build.py`**
-- **Input**: Scenes JSON (`--scenes`), Audio directory (`--audio`), Images directory (`--images`)
-- **Output**: MP4 video in `outputs/video_{chapter_id}.mp4`
-- **Module Used**: `src.video.composer.VideoComposer`
-- **Process**: Loads scenes + images + audio → Applies Ken Burns effect → Concatenates → Exports video
-
-**Usage**:
-```powershell
-python scripts/run_video_build.py --scenes data/scenes/scenes_1.json --audio data/audio/chapter_1 --images data/images/chapter_1 --out outputs
-```
-
----
-
-### Data Flow Diagram
-
-```
-┌─────────────────────┐
-│  Chapter JSON       │  (data/ihacw/chapters/ihacw_ch0001.json)
-│  {id, paragraphs[]} │
-└──────────┬──────────┘
-           │
-           ▼
-    ┌──────────────┐
-    │ STEP 1:      │
-    │ Scene        │  (run_scene_extraction.py)
-    │ Extraction   │   Uses: SceneExtractor (Gemini 2.5 Flash)
-    └──────┬───────┘
-           │
-           ▼
-┌──────────────────────────┐
-│ Scenes JSON              │  (data/scenes/scenes_1.json)
-│ [{visual_description,    │
-│   text_segment,          │
-│   characters,            │
-│   estimated_duration}]   │
-└────┬─────────────────┬───┘
-     │                 │
-     │                 │
-     ▼                 ▼
-┌─────────────┐  ┌─────────────┐
-│ STEP 2:     │  │ STEP 3:     │
-│ Image Gen   │  │ TTS Gen     │  (run_image_generation.py)  (run_tts.py)
-│             │  │             │   Uses: ImageGenerator       Uses: TTSManager
-└──────┬──────┘  └──────┬──────┘         (Pollinations.ai)         (Gemini TTS)
-       │                │
-       ▼                ▼
-┌─────────────┐  ┌─────────────┐
-│ Images/     │  │ Audio/      │  (data/images/chapter_1/)  (data/audio/chapter_1/)
-│ scene_*.png │  │ scene_*.mp3 │
-└──────┬──────┘  └──────┬──────┘
-       │                │
-       └────────┬───────┘
-                │
-                ▼
-         ┌──────────────┐
-         │ STEP 4:      │
-         │ Video        │  (run_video_build.py)
-         │ Assembly     │   Uses: VideoComposer (MoviePy)
-         └──────┬───────┘
-                │
-                ▼
-         ┌──────────────┐
-         │ Final Video  │  (data/videos/video_1.mp4)
-         │ video_*.mp4  │
-         └──────────────┘
-```
-
----
-
-### Configuration Files
-
-#### `configs/voices.yaml`
-Defines voice assignments for different characters/narrators:
-```yaml
-voices:
-  narrator:
-    name: "Puck"          # Gemini voice name
-    provider: "gemini"
-    rate: 1.0            # Speech rate multiplier
-    pitch: 0.0           # Pitch adjustment
-```
-
-**Available Gemini Voices**: Puck, Charon, Kore, Fenrir, Aoede
-
----
-
-### How Components Connect
-
-**Dependencies Between Modules**:
-```
-run_pipeline.py
-├── src.parser.gemini_parser (SceneExtractor)
-├── src.image.generator (ImageGenerator)
-├── src.tts.manager (TTSManager)
-│   └── src.tts.gemini_engine (GeminiTTSProvider)
-│       └── src.tts.base (VoiceConfig, TTSProvider)
-└── src.video.composer (VideoComposer)
-
-run_scene_extraction.py
-└── src.parser.gemini_parser (SceneExtractor)
-
-run_image_generation.py
-└── src.image.generator (ImageGenerator)
-
-run_tts.py
-└── src.tts.manager (TTSManager)
-    └── src.tts.gemini_engine (GeminiTTSProvider)
-
-run_video_build.py
-└── src.video.composer (VideoComposer)
-```
-
----
-
-### Technology Stack by Component
-
-| Component          | Technology                          | API/Service          |
-|--------------------|-------------------------------------|----------------------|
-| Scene Extraction   | `google-generativeai` (Gemini SDK) | Gemini 2.5 Flash     |
-| Image Generation   | `requests` HTTP client              | Pollinations.ai      |
-| Text-to-Speech     | `google-generativeai` (Gemini SDK) | Gemini TTS Preview   |
-| Video Assembly     | `moviepy`                           | Local processing     |
-
----
-
-### Running the Full Pipeline
-
-**Option 1: Run everything at once**
-```powershell
-$env:PYTHONPATH="."; .\.venv\Scripts\python.exe scripts/run_pipeline.py --chapter data/ihacw/chapters/ihacw_ch0001.json
-```
-
-**Option 2: Run stages individually**
-```powershell
-# Step 1: Extract scenes
-python scripts/run_scene_extraction.py --chapter data/ihacw/chapters/ihacw_ch0001.json
-
-# Step 2: Generate images
-python scripts/run_image_generation.py --scenes data/scenes/scenes_1.json
-
-# Step 3: Generate audio (uses scenes for text_segment)
-python scripts/run_tts.py --chapter data/ihacw/chapters/ihacw_ch0001.json
-
-# Step 4: Assemble video
-python scripts/run_video_build.py --scenes data/scenes/scenes_1.json --audio data/audio/chapter_1 --images data/images/chapter_1
-```
+Contributions welcome! Please open an issue or PR.

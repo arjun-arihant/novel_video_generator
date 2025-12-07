@@ -8,6 +8,9 @@ __pycache__/
 venv/
 ENV/
 env/
+*.egg-info/
+dist/
+build/
 
 # Environment
 .env
@@ -16,10 +19,7 @@ env/
 # Temporary files
 temp_*.json
 temp_*/
-temp_audio_out/
-temp_flux_out/
-temp_output/
-temp_output_bg/
+nul
 
 # IDE
 .vscode/
@@ -27,13 +27,19 @@ temp_output_bg/
 *.swp
 *.swo
 *~
+.claude/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Project outputs (optional - uncomment if you don't want to track outputs)
+# Project outputs
 outputs/
 data/images/
 data/audio/
 data/videos/
+data/scenes/
+data/pipeline_*/
+
+# Test outputs
+test_audio.mp3

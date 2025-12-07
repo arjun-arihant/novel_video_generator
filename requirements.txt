@@ -1,14 +1,18 @@
-ebooklib
-beautifulsoup4
-lxml
-ftfy
-regex
-tqdm
-aiofiles
-PyYAML
-google-generativeai
-moviepy
-python-dotenv
-pillow
-requests
-tenacity
+# Core dependencies
+google-generativeai>=0.3.0
+moviepy>=2.0.0
+python-dotenv>=1.0.0
+PyYAML>=6.0
+requests>=2.31.0
+tenacity>=8.2.0
+
+# Image processing (moviepy dependency)
+pillow>=10.0.0
+
+# Optional: EPUB preprocessing (not used in main pipeline)
+# Uncomment if you need to process raw EPUB files
+# ebooklib>=0.18
+# beautifulsoup4>=4.12.0
+# lxml>=4.9.0
+# ftfy>=6.1.0
+# tqdm>=4.65.0

@@ -1,109 +1,115 @@
-import os
-import requests
+"""Gemini TTS provider implementation."""
+
+import base64
 import json
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
+
+import requests
+
+from ..common import get_api_key
 from .base import TTSProvider, VoiceConfig
 
 logger = logging.getLogger(__name__)
 
 class GeminiTTSProvider(TTSProvider):
-    def __init__(self):
-        self.api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if not self.api_key:
-            raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY not found")
-        
-        # Use a compatible model. gemini-2.0-flash-exp is multimodal.
-        # User requested gemini-2.5-flash.
-        self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") 
-        # is_flash_2_5 = "2.5" in self.model # Not logic needed if we trust the string.
-        
-        self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+    """TTS provider using Gemini 2.5 Flash API."""
 
-    async def generate_audio(self, text: str, output_path: str, voice_config: VoiceConfig) -> Optional[str]:
+    def __init__(self, model: str = "gemini-2.5-flash-preview-tts"):
+        """
+        Initialize Gemini TTS provider.
+
+        Args:
+            model: Gemini model to use for TTS
+        """
+        self.api_key = get_api_key("gemini")
+        self.model = model
+        self.base_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/"
+            f"models/{self.model}:generateContent"
+        )
+
+    async def generate_audio(
+        self,
+        text: str,
+        output_path: Union[str, Path],
+        voice_config: VoiceConfig
+    ) -> Optional[str]:
+        """
+        Generate audio from text using Gemini API.
+
+        Args:
+            text: Text to convert to speech
+            output_path: Path where audio file will be saved
+            voice_config: Voice configuration (uses voice name for Gemini voice selection)
+
+        Returns:
+            Path to saved audio file, or None if generation failed
+        """
         try:
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            # Prompt engineering to force reading
-            # For Gemini multimodal output, we likely need to prompt it to 'speak'.
-            # However, exact 'text-to-speech' model might have different payload.
-            # Assuming standard multimodal generateContent with audio response.
-            
-            # User's hint suggests tools might be needed or specific structure.
-            # "tools": [{"google_search_retrieval": {}}] was in the hint, unrelated to TTS but maybe structure matters.
-            # But the key for TTS is likely just requesting audio.
-            
-            # Back to basics: Just responseMimeType. 
-            # If that failed before, maybe the prompt needs to be "say this"?
-            
-            # Trying user's exact suggestion: including 'tools'
-            
-            # Standard Gemini Audio Generation Payload
-            # If this model supports audio output, this is the correct way.
-            
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            headers = {"Content-Type": "application/json"}
+
+            # Gemini TTS API payload
             payload = {
                 "contents": [{
-                    "parts": [{"text": f"Please read this text out loud: {text}"}]
+                    "parts": [{"text": text}]
                 }],
                 "generationConfig": {
-                    "responseMimeType": "audio/mp3"
+                    "responseMimeType": "audio/mp3",
+                    "speechConfig": {
+                        "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_config.name}}
+                    }
                 }
             }
 
             url = f"{self.base_url}?key={self.api_key}"
-            
-            logger.info(f"Generating TTS with Gemini ({self.model})...")
-            response = requests.post(url, headers=headers, data=json.dumps(payload))
-            
+
+            logger.info(f"Generating TTS with Gemini ({self.model}, voice: {voice_config.name})...")
+            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
+
             if response.status_code != 200:
-                logger.error(f"Gemini TTS request failed: {response.status_code} - {response.text}")
-                # Try to print more details
-                try: 
+                logger.error(
+                    f"Gemini TTS request failed: {response.status_code} - {response.text}"
+                )
+                try:
                     error_details = response.json()
                     logger.error(f"Error details: {json.dumps(error_details, indent=2)}")
-                except:
+                except Exception:
                     pass
                 return None
-                
+
             response_json = response.json()
-            
-            # Parse response for audio bytes
-            # Structure usually: candidates[0].content.parts[0].inlineData.data (base64)
-            # But with audio/mp3 mimetype, it might return binary or base64.
-            # Let's inspect typical Gemini response structure.
-            
-            try:
-                # Basic check for Safety/Recitation errors
-                if 'promptFeedback' in response_json and response_json['promptFeedback'].get('blockReason'):
-                     logger.warning(f"Blocked: {response_json['promptFeedback']}")
-                     return None
-                     
-                candidates = response_json.get('candidates', [])
-                if not candidates:
-                    logger.warning("No candidates returned from Gemini.")
-                    return None
-                    
-                part = candidates[0]['content']['parts'][0]
-                
-                # If audio is returned, it's likely inlineData (base64)
-                if 'inlineData' in part:
-                    import base64
-                    audio_data = base64.b64decode(part['inlineData']['data'])
-                    with open(output_path, 'wb') as f:
-                        f.write(audio_data)
-                    logger.info(f"Audio saved to {output_path}")
-                    return output_path
-                else:
-                    logger.warning(f"No inlineData (audio) found. Response might be text: {part.get('text')}")
-                    return None
-                    
-            except Exception as e:
-                logger.error(f"Failed to parse Gemini TTS response: {e}")
-                logger.debug(f"Full response: {response_json}")
+
+            # Check for safety/recitation blocks
+            if 'promptFeedback' in response_json and response_json['promptFeedback'].get('blockReason'):
+                logger.warning(f"Content blocked: {response_json['promptFeedback']}")
+                return None
+
+            candidates = response_json.get('candidates', [])
+            if not candidates:
+                logger.warning("No candidates returned from Gemini.")
+                return None
+
+            part = candidates[0]['content']['parts'][0]
+
+            # Extract audio from inlineData (base64 encoded)
+            if 'inlineData' in part:
+                audio_data = base64.b64decode(part['inlineData']['data'])
+                with open(output_path, 'wb') as f:
+                    f.write(audio_data)
+                logger.info(f"Audio saved to {output_path}")
+                return str(output_path)
+            else:
+                logger.warning(
+                    f"No audio data found in response. "
+                    f"Response might be text: {part.get('text', '')[:100]}"
+                )
                 return None
 
         except Exception as e:
-            logger.error(f"Gemini TTS error: {e}")
+            logger.error(f"Gemini TTS error: {e}", exc_info=True)
             return None

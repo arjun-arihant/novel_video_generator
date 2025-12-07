@@ -1,18 +1,20 @@
+# Voice configuration for TTS
+# Available Gemini voices: Puck, Charon, Kore, Fenrir, Aoede
 voices:
   narrator:
-    name: "en-US-Neural2-D" # Deep male voice
-    provider: "google"
+    name: "Puck"  # Neutral, balanced voice
+    provider: "gemini"
     rate: 1.0
-    pitch: -2.0
-  
+    pitch: 0.0
+
   male_protagonist:
-    name: "en-US-Neural2-J" # Energetic male
-    provider: "google"
-    rate: 1.05
+    name: "Fenrir"  # Deeper male voice
+    provider: "gemini"
+    rate: 1.0
     pitch: 0.0
 
   female_protagonist:
-    name: "en-US-Neural2-F" # Soft female
-    provider: "google"
+    name: "Kore"  # Softer female voice
+    provider: "gemini"
     rate: 1.0
-    pitch: 1.0
+    pitch: 0.0
