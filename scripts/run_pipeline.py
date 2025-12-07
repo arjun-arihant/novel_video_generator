@@ -73,8 +73,8 @@ async def run_pipeline(chapter_path: str, output_base: str):
     # 3. TTS Generation
     logger.info("Generating audio...")
     tts_manager = TTSManager()
-    provider = tts_manager.get_provider("edge")
-    voice_id = tts_manager.get_voice_id("narrator")
+    provider = tts_manager.get_provider("gemini")
+    voice_id = tts_manager.get_voice_id("narrator", "gemini")
     
     tts_tasks = []
     for i, scene in enumerate(scenes):

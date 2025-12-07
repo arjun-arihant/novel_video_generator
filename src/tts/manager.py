@@ -3,8 +3,6 @@ import logging
 import yaml
 from typing import Dict, Optional
 from .base import TTSProvider, VoiceConfig
-from .edge_engine import EdgeTTSProvider
-from .google_engine import GoogleTTSProvider
 
 logger = logging.getLogger(__name__)
 
@@ -14,16 +12,14 @@ class TTSManager:
         self.voice_configs: Dict[str, VoiceConfig] = {}
         self.load_config(config_path)
         
-        # Initialize providers
+        # Initialize Gemini TTS provider
         try:
-            self.providers['google'] = GoogleTTSProvider()
+            from .gemini_engine import GeminiTTSProvider
+            self.providers['gemini'] = GeminiTTSProvider()
+            logger.info("Gemini TTS provider initialized.")
         except Exception as e:
-            logger.warning(f"Google TTS not available: {e}")
-            
-        try:
-            self.providers['edge'] = EdgeTTSProvider()
-        except Exception as e:
-            logger.warning(f"Edge TTS not available: {e}")
+            logger.error(f"Gemini TTS not available: {e}")
+            raise
 
     def load_config(self, path: str):
         if not os.path.exists(path):
@@ -41,11 +37,21 @@ class TTSManager:
                 pitch=config.get('pitch', 0.0)
             )
 
+    def get_provider(self, provider_name: str) -> Optional[TTSProvider]:
+        return self.providers.get(provider_name)
+    
+    def get_voice_id(self, character: str, provider: str) -> VoiceConfig:
+        config = self.voice_configs.get(character)
+        if config:
+            return config
+        # Fallback config
+        return VoiceConfig(name="default", provider=provider)
+
     async def generate_narration(self, text: str, output_path: str, character: str = "narrator"):
         config = self.voice_configs.get(character)
         if not config:
             # Default fallback
-            config = VoiceConfig(name="en-US-Neural2-D", provider="google")
+            config = VoiceConfig(name="Puck", provider="gemini")
             
         provider = self.providers.get(config.provider)
         if not provider:

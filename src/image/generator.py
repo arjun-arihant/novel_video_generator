@@ -1,6 +1,8 @@
 import os
 import logging
-import google.generativeai as genai
+import requests
+import random
+import time
 from typing import Optional
 from pathlib import Path
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type, before_sleep_log
@@ -12,68 +14,76 @@ logger = logging.getLogger(__name__)
 
 class ImageGenerator:
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY not found")
-            
-        genai.configure(api_key=api_key)
+        # Pollinations.ai doesn't strictly need an API key for free tier, 
+        # but we keep the structure consistent.
         self.enabled = True
-        try:
-            # Use Gemini 2.5 Flash Image Preview which supports native image generation
-            self.model = genai.GenerativeModel("gemini-2.5-flash-image-preview")
-        except Exception as e:
-            logger.error(f"Failed to initialize GenerativeModel: {e}")
-            self.enabled = False
-            self.model = None
-
-    def generate_image(self, prompt: str, output_path: str, aspect_ratio: str = "16:9"):
+        self.base_url = "https://image.pollinations.ai/prompt/"
+        
+    def generate_image(self, prompt: str, output_path: str, aspect_ratio: str = "landscape"):
         """
-        Generate an image from a prompt using Gemini 2.5 and save it to output_path.
+        Generate an image from a prompt using Pollinations.ai and save it to output_path.
         """
         if not self.enabled:
             raise RuntimeError("Image generation is disabled.")
             
-        return self._generate_with_retry(prompt, output_path)
+        return self._generate_with_retry(prompt, output_path, aspect_ratio)
 
     @retry(
         retry=retry_if_exception_type(Exception), 
-        wait=wait_exponential(multiplier=2, min=4, max=60),
-        stop=stop_after_attempt(7),
+        wait=wait_exponential(multiplier=2, min=10, max=120), # Wait longer between retries (min 10s)
+        stop=stop_after_attempt(10), # Try more times (queued requests usually succeed eventually)
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
-    def _generate_with_retry(self, prompt: str, output_path: str):
+    def _generate_with_retry(self, prompt: str, output_path: str, aspect_ratio: str):
         try:
-            logger.info(f"Generating image with Gemini 2.5 for prompt: {prompt[:50]}...")
+            logger.info(f"Generating image with Pollinations.ai for prompt: {prompt[:50]}...")
             
-            # For Gemini 2.5, we ask for an image in the text prompt
-            response = self.model.generate_content(f"Generate an image of: {prompt}")
+            # Refine prompt for Flux (Natural Language, no "tag soup")
+            # User Feedback: "Flux hates tag soup... Write natural, descriptive sentences."
+            # We assume the incoming prompt is relatively descriptive.
+            # We append a natural style suffix instead of tags.
             
-            # Check for image parts in the response
-            if response.parts:
-                for part in response.parts:
-                    # Check if part has inline_data (image)
-                    if hasattr(part, "inline_data") and part.inline_data:
-                        # This is likely the image data
-                        # The data is already bytes if accessed via inline_data.data usually
-                        img_data = part.inline_data.data
-                        
-                        with open(output_path, 'wb') as f:
-                            f.write(img_data)
-                        logger.info(f"Image saved to {output_path}")
-                        return output_path
-            
-            logger.warning("No image data found in response.")
-            return None
+            style_suffix = " in a beautiful Chinese manhua webtoon style, clean line art, vibrant colors, cinematic lighting, 4k resolution"
+            if "manhua" not in prompt.lower():
+                refined_prompt = f"{prompt}{style_suffix}"
+            else:
+                refined_prompt = prompt
                 
-        except Exception as e:
-            if "429" in str(e) or "ResourceExhausted" in str(e):
-                logger.warning(f"Rate limit hit: {e}. Retrying...")
-                raise e
+            # 1. Define params
+            # Map aspect ratio to dimensions
+            # User recommended: 1280x720 for landscape (Video), 768x1152 for portrait (Manhua native)
+            if aspect_ratio == "portrait":
+                width, height = 768, 1152 # 2:3 ratio approx
+            else:
+                width, height = 1280, 720 # 16:9 Landscape (Video Default)
             
+            # 2. Construct Payload (POST Method)
+            # Using POST is more robust for long prompts and avoids URL length limits
+            payload = {
+                "prompt": refined_prompt,
+                "model": "flux-anime",
+                "width": width,
+                "height": height,
+                "nologo": True,
+                "enhance": False,
+                "seed": random.randint(1, 1000000)
+            }
+            
+            # 3. Make request
+            # Pollinations accepts POST at /prompt
+            url = "https://image.pollinations.ai/prompt"
+            
+            # Increased timeout to 120s as Flux models can be slow and queue can be long
+            response = requests.post(url, json=payload, timeout=120)
+            
+            if response.status_code == 200:
+                with open(output_path, 'wb') as f:
+                    f.write(response.content)
+                logger.info(f"Image saved to {output_path} (Seed: {payload['seed']})")
+                return output_path
+            else:
+                raise Exception(f"Pollinations API returned {response.status_code}: {response.text}")
+
+        except Exception as e:
             logger.error(f"Error generating image: {e}")
-            # Fallback to placeholder ONLY if it's NOT a rate limit error (or after retries exhausted)
-            # But here we are inside the retry loop, so we should raise if it's retryable.
-            # If it's another error, we might want to fallback immediately.
-            # Let's assume we fallback only on final failure or non-retryable error.
-            # Actually, tenacity will catch the raise.
             raise e

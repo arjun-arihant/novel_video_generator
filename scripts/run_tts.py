@@ -74,7 +74,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate TTS audio for a chapter")
     parser.add_argument("--chapter", required=True, help="Path to chapter JSON file")
     parser.add_argument("--out", default="data/audio", help="Output directory")
-    parser.add_argument("--provider", default="edge", help="TTS provider to use")
+    parser.add_argument("--provider", default="gemini", help="TTS provider to use (gemini)")
     
     args = parser.parse_args()
     

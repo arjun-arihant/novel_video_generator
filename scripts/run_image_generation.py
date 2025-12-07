@@ -13,7 +13,7 @@ from src.image.generator import ImageGenerator
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def process_scenes(scenes_path: str, output_dir: str):
+def process_scenes(scenes_path: str, output_dir: str, aspect_ratio: str = "landscape"):
     scenes_path = Path(scenes_path)
     if not scenes_path.exists():
         logger.error(f"Scenes file not found: {scenes_path}")
@@ -47,7 +47,11 @@ def process_scenes(scenes_path: str, output_dir: str):
             continue
             
         try:
-            generator.generate_image(prompt, str(output_file))
+            generator.generate_image(prompt, str(output_file), aspect_ratio=aspect_ratio)
+            # Add pacing to avoid hitting "Queue full" (Max 5 concurrent/queued per IP)
+            # Since we run sequentially, a small delay allows the server to clear our previous request from its "recent" buffer.
+            import time
+            time.sleep(5) 
         except Exception as e:
             logger.error(f"Failed to generate image for scene {i}: {e}")
 
@@ -55,10 +59,11 @@ def main():
     parser = argparse.ArgumentParser(description="Generate images for extracted scenes")
     parser.add_argument("--scenes", required=True, help="Path to scenes JSON file")
     parser.add_argument("--out", default="data/images", help="Output directory")
+    parser.add_argument("--aspect", default="landscape", help="Aspect ratio (landscape/portrait)")
     
     args = parser.parse_args()
     
-    process_scenes(args.scenes, args.out)
+    process_scenes(args.scenes, args.out, args.aspect)
 
 if __name__ == "__main__":
     main()

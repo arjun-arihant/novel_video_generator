@@ -23,7 +23,8 @@ class SceneExtractor:
         genai.configure(api_key=api_key)
         
         if not model_name:
-            model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+            # User explicitly requested gemini-2.5-flash
+            model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
             
         self.model = genai.GenerativeModel(model_name)
 
@@ -35,10 +36,14 @@ class SceneExtractor:
         prompt = f"""
         Analyze the following fiction chapter text and break it down into 3-6 distinct visual scenes.
         For each scene, provide:
-        1. A detailed visual description for an AI image generator. **STYLE: Chinese Manhua/Webtoon, Anime style, 2D cel-shaded, vibrant colors, high quality illustration.**
+        1. A "visual_description": A detailed, natural language description of the scene suitable for an AI image generator (Flux). 
+           - Focus on lighting, composition, subject action, and background.
+           - Describe the scene as a "Chinese Manhua/Webtoon panel".
+           - Avoid comma-separated tags. Use full sentences.
+           - Example: "A low-angle shot of a warrior standing on a cliff edge, silhouetted against a burning sunset, wind blowing through their robes. The art style is vibrant and cel-shaded."
         2. The segment of text that corresponds to this scene.
-        3. A list of characters present (describe them with anime/manhua features).
-        4. An estimated duration in seconds (assuming normal reading speed).
+        3. A list of characters present.
+        4. An estimated duration in seconds.
 
         Return the result as a valid JSON list of objects with keys: "visual_description", "text_segment", "characters", "estimated_duration".
         Do not include markdown formatting like ```json ... ```, just the raw JSON string.

@@ -5,7 +5,7 @@ from typing import Optional
 @dataclass
 class VoiceConfig:
     name: str
-    provider: str = "google"
+    provider: str = "gemini"
     rate: float = 1.0
     pitch: float = 0.0
 

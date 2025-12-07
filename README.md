@@ -4,19 +4,17 @@ A Python pipeline that converts novel chapters (text) into animated videos with 
 
 ## Features
 
-- **Scene Extraction**: Uses **Gemini 2.5 Flash Image Preview** to analyze text and extract visual scenes.
-- **Image Generation**: Uses **Gemini 2.5 Flash Image Preview** to generate high-quality images.
+- **Scene Extraction**: Uses **Gemini 2.5 Flash** to analyze text and extract visual scenes.
+- **Image Generation**: Uses **Pollinations.ai Flux models** to generate high-quality images.
 - **Style**: Enforces a **Chinese Manhua/Webtoon** aesthetic.
-- **Narration**: Uses **Google Cloud Text-to-Speech** (Neural2 voices) for high-quality audio.
+- **Narration**: Uses **Gemini 2.5 Flash Preview TTS** for high-quality audio.
 - **Animation**: Applies **Ken Burns effect** (Pan/Zoom) to static images.
 - **Video Assembly**: Combines images, audio, and effects into a final `.mp4`.
 
 ## Prerequisites
 
 - Python 3.10+
-- **Google Cloud Project** with:
-    - Gemini API enabled (for text/images)
-    - Cloud Text-to-Speech API enabled (for audio)
+- **Gemini API Key** (for text processing, image generation, and TTS)
 - `ffmpeg` installed and in your system PATH.
 
 ## Setup
@@ -38,9 +36,7 @@ A Python pipeline that converts novel chapters (text) into animated videos with 
     Create a `.env` file in the root directory:
     ```env
     GEMINI_API_KEY=your_gemini_api_key
-    GOOGLE_APPLICATION_CREDENTIALS=path/to/your/service-account-key.json
     ```
-    *Note: Google Cloud TTS requires a service account JSON key.*
 
 ## Usage
 
