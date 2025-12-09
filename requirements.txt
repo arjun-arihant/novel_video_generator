@@ -1,13 +1,12 @@
 # Core dependencies
 google-generativeai>=0.3.0
-moviepy>=2.0.0
 python-dotenv>=1.0.0
 PyYAML>=6.0
 requests>=2.31.0
 tenacity>=8.2.0
 
-# Image processing (moviepy dependency)
-pillow>=10.0.0
+# Note: FFmpeg is required but must be installed separately
+# Download from: https://ffmpeg.org/download.html
 
 # Optional: EPUB preprocessing (not used in main pipeline)
 # Uncomment if you need to process raw EPUB files

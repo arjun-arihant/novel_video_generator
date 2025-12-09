@@ -1,16 +1,17 @@
-"""Video composition using MoviePy."""
+"""Video composition using FFmpeg directly."""
 
+import json
 import logging
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Union
-
-from moviepy import *
 
 logger = logging.getLogger(__name__)
 
 
 class VideoComposer:
-    """Assembles final video from scenes, images, and audio."""
+    """Assembles final video from scenes, images, and audio using FFmpeg."""
 
     def __init__(self, resolution: tuple[int, int] = (1920, 1080), fps: int = 24):
         """
@@ -22,6 +23,23 @@ class VideoComposer:
         """
         self.resolution = resolution
         self.fps = fps
+        self._verify_ffmpeg()
+
+    def _verify_ffmpeg(self) -> None:
+        """Verify FFmpeg is installed and accessible."""
+        try:
+            result = subprocess.run(
+                ['ffmpeg', '-version'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            logger.info("FFmpeg found: %s", result.stdout.split('\n')[0])
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            raise RuntimeError(
+                "FFmpeg not found. Please install FFmpeg and add it to your PATH. "
+                "Download from: https://ffmpeg.org/download.html"
+            ) from e
 
     def create_video(
         self,
@@ -47,111 +65,162 @@ class VideoComposer:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Assembling video with {len(scenes)} scenes...")
+        logger.info(f"Assembling video with {len(scenes)} scenes using FFmpeg...")
 
-        clips = []
+        # Create temporary directory for intermediate clips
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            scene_clips = []
 
-        for i in range(len(scenes)):
-            image_path = image_dir / f"scene_{i:03d}.png"
-            audio_path = audio_dir / f"scene_{i:03d}.mp3"
+            # Generate individual scene clips
+            for i in range(len(scenes)):
+                image_path = image_dir / f"scene_{i:03d}.png"
+                audio_path = audio_dir / f"scene_{i:03d}.mp3"
+                clip_path = temp_path / f"clip_{i:03d}.mp4"
 
-            if not image_path.exists():
-                logger.warning(f"Image not found for scene {i}: {image_path}")
-                continue
+                if not image_path.exists():
+                    logger.warning(f"Image not found for scene {i}: {image_path}")
+                    continue
 
-            if not audio_path.exists():
-                logger.warning(f"Audio not found for scene {i}: {audio_path}")
-                continue
+                if not audio_path.exists():
+                    logger.warning(f"Audio not found for scene {i}: {audio_path}")
+                    continue
 
+                try:
+                    success = self._create_scene_clip(
+                        image_path, audio_path, clip_path
+                    )
+                    if success:
+                        scene_clips.append(clip_path)
+                        logger.info(f"Created clip {i+1}/{len(scenes)}")
+                except Exception as e:
+                    logger.error(f"Failed to create clip for scene {i}: {e}")
+                    continue
+
+            if not scene_clips:
+                logger.error("No clips created")
+                return False
+
+            # Concatenate all clips
             try:
-                clip = self._create_scene_clip(image_path, audio_path)
-                clips.append(clip)
-                logger.info(f"Added clip {i+1}/{len(scenes)}")
+                return self._concatenate_clips(scene_clips, output_path)
             except Exception as e:
-                logger.error(f"Failed to create clip for scene {i}: {e}")
-                continue
-
-        if not clips:
-            logger.error("No clips created")
-            return False
-
-        try:
-            final_video = concatenate_videoclips(clips, method="compose")
-            logger.info(f"Writing video to {output_path}...")
-            final_video.write_videofile(
-                str(output_path),
-                fps=self.fps,
-                codec="libx264",
-                audio_codec="aac"
-            )
-            logger.info("Video generation complete")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to create final video: {e}")
-            return False
+                logger.error(f"Failed to concatenate clips: {e}")
+                return False
 
     def _create_scene_clip(
         self,
         image_path: Path,
-        audio_path: Path
-    ) -> CompositeVideoClip:
+        audio_path: Path,
+        output_path: Path
+    ) -> bool:
         """
-        Create a single scene clip with Ken Burns effect.
+        Create a single scene clip with Ken Burns zoom effect.
 
         Args:
             image_path: Path to scene image
             audio_path: Path to scene audio
+            output_path: Path for output clip
 
         Returns:
-            Video clip with audio
-        """
-        # Load audio to get duration
-        audio_clip = AudioFileClip(str(audio_path))
-        duration = audio_clip.duration
-
-        # Load and prepare image
-        img_clip = ImageClip(str(image_path)).with_duration(duration)
-
-        # Apply Ken Burns effect (slow zoom)
-        img_clip = self._apply_ken_burns_effect(img_clip, duration)
-
-        # Combine image and audio
-        return img_clip.with_audio(audio_clip)
-
-    def _apply_ken_burns_effect(
-        self,
-        clip: ImageClip,
-        duration: float
-    ) -> ImageClip:
-        """
-        Apply Ken Burns zoom effect to image clip.
-
-        Args:
-            clip: Image clip
-            duration: Duration in seconds
-
-        Returns:
-            Clip with zoom effect applied
+            True if successful, False otherwise
         """
         w, h = self.resolution
 
-        # Resize to slightly larger than output to allow zoom
-        clip = clip.resized(height=int(h * 1.2))
-
-        # Center crop to target resolution
-        clip = clip.cropped(
-            width=w,
-            height=h,
-            x_center=clip.w / 2,
-            y_center=clip.h / 2
+        # Ken Burns effect: slow zoom from 100% to 105% over the duration
+        # zoompan filter: z = zoom factor (1.0 to 1.05), d = duration in frames
+        # We'll let FFmpeg match the audio duration automatically
+        video_filter = (
+            f"scale={int(w*1.2)}:{int(h*1.2)},"  # Scale up for zoom headroom
+            f"zoompan=z='min(1+0.05*on/{self.fps}/10,1.05)':"  # Gradual zoom
+            f"d=1:s={w}x{h}:fps={self.fps}"
         )
 
-        # Apply gradual zoom (1.0x to 1.05x over duration)
-        def zoom_function(t):
-            return 1 + 0.05 * (t / duration)
+        cmd = [
+            'ffmpeg',
+            '-y',  # Overwrite output file
+            '-loop', '1',  # Loop the image
+            '-i', str(image_path),  # Input image
+            '-i', str(audio_path),  # Input audio
+            '-vf', video_filter,  # Video filter (Ken Burns)
+            '-c:v', 'libx264',  # Video codec
+            '-preset', 'medium',  # Encoding preset
+            '-crf', '23',  # Quality (lower = better, 23 is good)
+            '-c:a', 'aac',  # Audio codec
+            '-b:a', '192k',  # Audio bitrate
+            '-shortest',  # End when shortest stream ends (audio)
+            '-pix_fmt', 'yuv420p',  # Pixel format for compatibility
+            str(output_path)
+        ]
 
-        clip = clip.resized(zoom_function)
-        clip = clip.with_position("center")
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            logger.debug(f"FFmpeg output: {result.stderr[-500:]}")  # Last 500 chars
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFmpeg error: {e.stderr}")
+            return False
 
-        return clip
+    def _concatenate_clips(
+        self,
+        clip_paths: List[Path],
+        output_path: Path
+    ) -> bool:
+        """
+        Concatenate multiple video clips into one.
+
+        Args:
+            clip_paths: List of paths to video clips
+            output_path: Path for final output video
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Create concat file for FFmpeg
+        with tempfile.NamedTemporaryFile(
+            mode='w',
+            suffix='.txt',
+            delete=False,
+            encoding='utf-8'
+        ) as f:
+            concat_file = Path(f.name)
+            for clip_path in clip_paths:
+                # FFmpeg concat requires forward slashes even on Windows
+                clip_str = str(clip_path).replace('\\', '/')
+                f.write(f"file '{clip_str}'\n")
+
+        try:
+            cmd = [
+                'ffmpeg',
+                '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', str(concat_file),
+                '-c', 'copy',  # Copy streams without re-encoding
+                str(output_path)
+            ]
+
+            logger.info(f"Concatenating {len(clip_paths)} clips...")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            logger.info(f"Video created: {output_path}")
+            return True
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFmpeg concatenation error: {e.stderr}")
+            return False
+        finally:
+            # Clean up concat file
+            try:
+                concat_file.unlink()
+            except Exception:
+                pass
