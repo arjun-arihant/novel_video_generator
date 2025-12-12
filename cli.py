@@ -36,6 +36,13 @@ async def extract_scenes(args: argparse.Namespace) -> int:
 
     chapter_data = load_json(args.chapter)
     validate_chapter(chapter_data)
+    
+    # Normalize chapter data format
+    if 'id' in chapter_data and 'chapter_number' not in chapter_data:
+        chapter_data['chapter_number'] = chapter_data['id']
+    
+    if 'paragraphs' in chapter_data and 'content' not in chapter_data:
+        chapter_data['content'] = chapter_data['paragraphs']
 
     extractor = SceneExtractor()
     chapter_text = "\n".join(chapter_data['content'])
@@ -157,6 +164,11 @@ async def run_full_pipeline(args: argparse.Namespace) -> int:
     logger.info(f"Running full pipeline for: {args.chapter}")
 
     chapter_data = load_json(args.chapter)
+    
+    # Normalize chapter data format
+    if 'id' in chapter_data and 'chapter_number' not in chapter_data:
+        chapter_data['chapter_number'] = chapter_data['id']
+    
     chapter_num = chapter_data['chapter_number']
 
     # Create working directory

@@ -64,34 +64,36 @@ class ImageGenerator:
 
         # Enhance prompt with style description
         enhanced_prompt = self._enhance_prompt(prompt)
-
-        # Get dimensions based on aspect ratio
+        
+        # Get dimensions based on aspect ratio - include in prompt since query params cause 502
         width, height = self._get_dimensions(aspect_ratio)
+        
+        # Add resolution hint to prompt instead of using query params (Pollinations API is buggy with params)
+        dimension_hint = f" --ar {width}:{height}"
+        enhanced_prompt_with_size = enhanced_prompt + dimension_hint
 
-        # Prepare payload
-        payload = {
-            "prompt": enhanced_prompt,
-            "model": self.model,
-            "width": width,
-            "height": height,
-            "nologo": True,
-            "enhance": False,
-            "seed": random.randint(1, 1000000)
-        }
+        # Pollinations.ai API - using minimal params to avoid 502 errors
+        # The full param API is broken, so we just use the basic endpoint
+        import urllib.parse
+        encoded_prompt = urllib.parse.quote(enhanced_prompt_with_size)
+        
+        # Simplified URL - query params are causing 502 errors
+        url = f"{self.base_url}/{encoded_prompt}"
 
-        # Make request
-        response = requests.post(
-            self.base_url,
-            json=payload,
+        logger.debug(f"Requesting: {url[:100]}...")
+
+        # Make GET request
+        response = requests.get(
+            url,
             timeout=120
         )
 
         if response.status_code == 200:
             with open(output_path, 'wb') as f:
                 f.write(response.content)
-            logger.info(f"Image saved to {output_path} (Seed: {payload['seed']})")
+            logger.info(f"Image saved to {output_path}")
         else:
-            error_msg = f"Pollinations API returned {response.status_code}: {response.text}"
+            error_msg = f"Pollinations API returned {response.status_code}: {response.text[:200]}"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 

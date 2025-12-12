@@ -14,6 +14,10 @@ class ValidationError(Exception):
 def validate_chapter(chapter_data: Dict[str, Any]) -> None:
     """
     Validate chapter JSON structure.
+    
+    Supports two formats:
+    - Format 1: 'chapter_number', 'title', 'content'
+    - Format 2: 'id', 'title', 'paragraphs'
 
     Args:
         chapter_data: Chapter data dictionary
@@ -21,21 +25,33 @@ def validate_chapter(chapter_data: Dict[str, Any]) -> None:
     Raises:
         ValidationError: If validation fails
     """
-    required_fields = ['chapter_number', 'title', 'content']
+    # Check for 'title' which is common to both formats
+    if 'title' not in chapter_data:
+        raise ValidationError("Missing required field: title")
+    
+    # Normalize chapter_number field
+    if 'chapter_number' not in chapter_data and 'id' not in chapter_data:
+        raise ValidationError("Missing required field: chapter_number or id")
+    
+    chapter_num = chapter_data.get('chapter_number', chapter_data.get('id'))
+    
+    # Normalize content field
+    if 'content' in chapter_data:
+        content = chapter_data['content']
+    elif 'paragraphs' in chapter_data:
+        content = chapter_data['paragraphs']
+    else:
+        raise ValidationError("Missing required field: content or paragraphs")
+    
+    if not isinstance(content, list):
+        raise ValidationError("'content' or 'paragraphs' must be a list")
 
-    for field in required_fields:
-        if field not in chapter_data:
-            raise ValidationError(f"Missing required field: {field}")
-
-    if not isinstance(chapter_data['content'], list):
-        raise ValidationError("'content' must be a list of paragraphs")
-
-    if len(chapter_data['content']) == 0:
+    if len(content) == 0:
         raise ValidationError("Chapter content is empty")
 
     logger.info(
-        f"Validated chapter {chapter_data['chapter_number']}: "
-        f"{len(chapter_data['content'])} paragraphs"
+        f"Validated chapter {chapter_num}: "
+        f"{len(content)} paragraphs"
     )
 
 
