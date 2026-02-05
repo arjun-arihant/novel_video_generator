@@ -1,78 +1,211 @@
-"""Configuration management for the novel video generator."""
+/"""
+Configuration management using dataclasses for type safety and validation.
+"""
 
-import os
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional, List
+import os
 import yaml
-from dotenv import load_dotenv
-
-# Load environment variables once
-load_dotenv()
 
 
-def get_api_key(service: str) -> str:
-    """
-    Get API key for a specific service.
+@dataclass
+class GeminiConfig:
+    """Configuration for Gemini API."""
+    api_key: str
+    model: str = "gemini-2.0-flash-exp"
+    temperature: float = 0.7
+    max_output_tokens: int = 8192
+    timeout: int = 60
+    
+    def __post_init__(self):
+        if not self.api_key:
+            raise ValueError("Gemini API key is required")
+        if self.temperature < 0 or self.temperature > 1:
+            raise ValueError("Temperature must be between 0 and 1")
 
-    Args:
-        service: Service name (e.g., 'gemini')
 
-    Returns:
-        API key string
+@dataclass
+class ImageGenerationConfig:
+    """Configuration for image generation."""
+    model: str = "flux"
+    width: int = 1280
+    height: int = 720
+    seed: Optional[int] = None
+    max_retries: int = 10
+    retry_delay_base: float = 2.0
+    timeout: int = 120
+    
+    def __post_init__(self):
+        if self.width < 64 or self.width > 2048:
+            raise ValueError("Width must be between 64 and 2048")
+        if self.height < 64 or self.height > 2048:
+            raise ValueError("Height must be between 64 and 2048")
+        if self.max_retries < 0:
+            raise ValueError("max_retries must be non-negative")
 
-    Raises:
-        ValueError: If API key is not found
-    """
-    key_map = {
-        'gemini': 'GEMINI_API_KEY',
-    }
 
-    env_var = key_map.get(service.lower())
-    if not env_var:
-        raise ValueError(f"Unknown service: {service}")
+@dataclass
+class TTSConfig:
+    """Configuration for text-to-speech."""
+    model: str = "gemini"
+    voice: str = "Puck"
+    rate: float = 1.0
+    pitch: float = 0.0
+    max_concurrent: int = 3
+    timeout: int = 30
+    
+    def __post_init__(self):
+        if self.rate < 0.5 or self.rate > 2.0:
+            raise ValueError("Rate must be between 0.5 and 2.0")
+        if self.pitch < -1.0 or self.pitch > 1.0:
+            raise ValueError("Pitch must be between -1.0 and 1.0")
+        if self.max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
 
-    api_key = os.getenv(env_var)
-    if not api_key:
-        raise ValueError(
-            f"{env_var} not found in environment. "
-            f"Please set it in your .env file."
+
+@dataclass
+class VideoConfig:
+    """Configuration for video composition."""
+    fps: int = 24
+    width: int = 1920
+    height: int = 1080
+    codec: str = "libx264"
+    audio_codec: str = "aac"
+    video_bitrate: str = "5000k"
+    audio_bitrate: str = "192k"
+    ken_burns_intensity: float = 0.05
+    ken_burns_speed: float = 0.02
+    transition_duration: float = 0.5
+    
+    def __post_init__(self):
+        if self.fps < 1 or self.fps > 120:
+            raise ValueError("FPS must be between 1 and 120")
+        valid_codecs = ["libx264", "libx265", "h264_nvenc", "h264_amf"]
+        if self.codec not in valid_codecs:
+            raise ValueError(f"Codec must be one of {valid_codecs}")
+
+
+@dataclass
+class PipelineConfig:
+    """Main pipeline configuration."""
+    gemini: GeminiConfig
+    image: ImageGenerationConfig = field(default_factory=ImageGenerationConfig)
+    tts: TTSConfig = field(default_factory=TTSConfig)
+    video: VideoConfig = field(default_factory=VideoConfig)
+    output_dir: Path = field(default_factory=lambda: Path("data/output"))
+    temp_dir: Path = field(default_factory=lambda: Path("data/temp"))
+    log_level: str = "INFO"
+    continue_on_error: bool = True
+    max_scenes: int = 10
+    
+    def __post_init__(self):
+        # Ensure directories exist
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        if self.log_level not in valid_levels:
+            raise ValueError(f"log_level must be one of {valid_levels}")
+    
+    @classmethod
+    def from_env(cls) -> "PipelineConfig":
+        """Create configuration from environment variables."""
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is required")
+        
+        gemini_config = GeminiConfig(
+            api_key=api_key,
+            model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp"),
+            temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.7")),
+            max_output_tokens=int(os.getenv("GEMINI_MAX_TOKENS", "8192")),
+            timeout=int(os.getenv("GEMINI_TIMEOUT", "60"))
         )
+        
+        return cls(
+            gemini=gemini_config,
+            output_dir=Path(os.getenv("OUTPUT_DIR", "data/output")),
+            temp_dir=Path(os.getenv("TEMP_DIR", "data/temp")),
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
+            continue_on_error=os.getenv("CONTINUE_ON_ERROR", "true").lower() == "true"
+        )
+    
+    @classmethod
+    def from_yaml(cls, path: Path) -> "PipelineConfig":
+        """Load configuration from YAML file."""
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f)
+        
+        gemini_data = data.get('gemini', {})
+        gemini_config = GeminiConfig(
+            api_key=os.getenv("GEMINI_API_KEY", gemini_data.get('api_key', '')),
+            model=gemini_data.get('model', 'gemini-2.0-flash-exp'),
+            temperature=gemini_data.get('temperature', 0.7),
+            max_output_tokens=gemini_data.get('max_output_tokens', 8192)
+        )
+        
+        return cls(
+            gemini=gemini_config,
+            output_dir=Path(data.get('output_dir', 'data/output')),
+            temp_dir=Path(data.get('temp_dir', 'data/temp')),
+            log_level=data.get('log_level', 'INFO')
+        )
+    
+    def to_yaml(self, path: Path) -> None:
+        """Save configuration to YAML file."""
+        data = {
+            'gemini': {
+                'model': self.gemini.model,
+                'temperature': self.gemini.temperature,
+                'max_output_tokens': self.gemini.max_output_tokens
+            },
+            'image': {
+                'model': self.image.model,
+                'width': self.image.width,
+                'height': self.image.height,
+                'max_retries': self.image.max_retries
+            },
+            'tts': {
+                'voice': self.tts.voice,
+                'rate': self.tts.rate,
+                'pitch': self.tts.pitch,
+                'max_concurrent': self.tts.max_concurrent
+            },
+            'video': {
+                'fps': self.video.fps,
+                'width': self.video.width,
+                'height': self.video.height,
+                'codec': self.video.codec
+            },
+            'output_dir': str(self.output_dir),
+            'temp_dir': str(self.temp_dir),
+            'log_level': self.log_level
+        }
+        
+        with open(path, 'w') as f:
+            yaml.dump(data, f, default_flow_style=False)
 
-    return api_key
+
+# Global config instance (initialized lazily)
+_config: Optional[PipelineConfig] = None
 
 
-def load_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
-    """
-    Load configuration from YAML file.
-
-    Args:
-        config_path: Path to config file. Defaults to configs/voices.yaml
-
-    Returns:
-        Configuration dictionary
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-    """
-    if config_path is None:
-        config_path = Path(__file__).parent.parent.parent / "configs" / "voices.yaml"
-
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
+def get_config() -> PipelineConfig:
+    """Get the global configuration instance."""
+    global _config
+    if _config is None:
+        _config = PipelineConfig.from_env()
+    return _config
 
 
-def ensure_output_dir(path: Path) -> Path:
-    """
-    Ensure output directory exists.
+def set_config(config: PipelineConfig) -> None:
+    """Set the global configuration instance."""
+    global _config
+    _config = config
 
-    Args:
-        path: Directory path
 
-    Returns:
-        The created/existing path
-    """
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+def reset_config() -> None:
+    """Reset the global configuration instance."""
+    global _config
+    _config = None
