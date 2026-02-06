@@ -6,63 +6,65 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 from src.common import setup_logging, validate_chapter, validate_scenes, ensure_output_dir
-from src.parser.gemini_parser import SceneExtractor
+from src.parser.openrouter_parser import SceneExtractor
 from src.image.generator import ImageGenerator
 from src.tts.manager import TTSManager
 from src.video.composer import VideoComposer
+from src.consistency.store import ConsistencyStore
+from src.consistency.voice_assigner import assign_voice
 
 logger = logging.getLogger(__name__)
 
 
-def load_json(file_path: Path) -> dict:
+def load_json(file_path: Path):
     """Load and parse JSON file."""
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_json(data: dict, file_path: Path) -> None:
+def save_json(data, file_path: Path) -> None:
     """Save data to JSON file."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 async def extract_scenes(args: argparse.Namespace) -> int:
     """Extract scenes from chapter."""
-    logger.info(f"Extracting scenes from: {args.chapter}")
+    logger.info("Extracting scenes from: %s", args.chapter)
 
     chapter_data = load_json(args.chapter)
     validate_chapter(chapter_data)
-    
-    # Normalize chapter data format
-    if 'id' in chapter_data and 'chapter_number' not in chapter_data:
-        chapter_data['chapter_number'] = chapter_data['id']
-    
-    if 'paragraphs' in chapter_data and 'content' not in chapter_data:
-        chapter_data['content'] = chapter_data['paragraphs']
+
+    if "id" in chapter_data and "chapter_number" not in chapter_data:
+        chapter_data["chapter_number"] = chapter_data["id"]
+    if "paragraphs" in chapter_data and "content" not in chapter_data:
+        chapter_data["content"] = chapter_data["paragraphs"]
 
     extractor = SceneExtractor()
-    chapter_text = "\n".join(chapter_data['content'])
+    chapter_text = "\n".join(chapter_data["content"])
 
-    scenes = extractor.extract_scenes(chapter_text)
+    response = extractor.extract_scenes(chapter_text)
+    scenes = response.get("scenes", [])
 
     if not scenes:
         logger.error("No scenes extracted")
         return 1
 
-    output_path = args.output or Path(f"data/scenes/ch{chapter_data['chapter_number']:04d}_scenes.json")
+    output_path = args.output or Path(
+        f"data/scenes/ch{chapter_data['chapter_number']:04d}_scenes.json"
+    )
     save_json(scenes, output_path)
 
-    logger.info(f"Extracted {len(scenes)} scenes to: {output_path}")
+    logger.info("Extracted %s scenes to: %s", len(scenes), output_path)
     return 0
 
 
 async def generate_images(args: argparse.Namespace) -> int:
     """Generate images for scenes."""
-    logger.info(f"Generating images from: {args.scenes}")
+    logger.info("Generating images from: %s", args.scenes)
 
     scenes = load_json(args.scenes)
     validate_scenes(scenes)
@@ -76,26 +78,26 @@ async def generate_images(args: argparse.Namespace) -> int:
         output_path = output_dir / f"scene_{i:03d}.png"
 
         if output_path.exists() and not args.force:
-            logger.info(f"Skipping scene {i} (already exists)")
+            logger.info("Skipping scene %s (already exists)", i)
             continue
 
-        logger.info(f"Generating image for scene {i}/{len(scenes)}...")
-        prompt = scene['visual_description']
+        logger.info("Generating image for scene %s/%s...", i, len(scenes))
+        prompt = scene["visual_description"]
 
         success = generator.generate(prompt, str(output_path))
 
         if not success:
-            logger.error(f"Failed to generate image for scene {i}")
+            logger.error("Failed to generate image for scene %s", i)
             if not args.continue_on_error:
                 return 1
 
-    logger.info(f"Generated images in: {output_dir}")
+    logger.info("Generated images in: %s", output_dir)
     return 0
 
 
 async def generate_audio(args: argparse.Namespace) -> int:
     """Generate audio for scenes."""
-    logger.info(f"Generating audio from: {args.scenes}")
+    logger.info("Generating audio from: %s", args.scenes)
 
     scenes = load_json(args.scenes)
     validate_scenes(scenes)
@@ -104,19 +106,26 @@ async def generate_audio(args: argparse.Namespace) -> int:
     ensure_output_dir(output_dir)
 
     tts_manager = TTSManager()
+    store = ConsistencyStore()
+    used = []
+    characters = assign_voice(store.list_characters(), used)
+    for name, data in characters.items():
+        tts_manager.register_character_voice(name, data.get("voice_preset", ""))
+
     results = await tts_manager.generate_batch_audio(
         scenes,
         output_dir,
-        max_concurrent=args.concurrent
+        max_concurrent=args.concurrent,
+        default_voice="narrator",
     )
 
     failed = sum(1 for r in results if r is None)
     if failed > 0:
-        logger.warning(f"{failed}/{len(scenes)} audio files failed to generate")
+        logger.warning("%s/%s audio files failed to generate", failed, len(scenes))
         if not args.continue_on_error:
             return 1
 
-    logger.info(f"Generated audio in: {output_dir}")
+    logger.info("Generated audio in: %s", output_dir)
     return 0
 
 
@@ -131,16 +140,15 @@ async def build_video(args: argparse.Namespace) -> int:
     audio_dir = args.audio or Path("data/audio")
     output_path = args.output or Path("data/videos/output.mp4")
 
-    # Verify all required files exist
     for i in range(len(scenes)):
         image_path = images_dir / f"scene_{i:03d}.png"
         audio_path = audio_dir / f"scene_{i:03d}.mp3"
 
         if not image_path.exists():
-            logger.error(f"Missing image: {image_path}")
+            logger.error("Missing image: %s", image_path)
             return 1
         if not audio_path.exists():
-            logger.error(f"Missing audio: {audio_path}")
+            logger.error("Missing audio: %s", audio_path)
             return 1
 
     composer = VideoComposer()
@@ -148,30 +156,28 @@ async def build_video(args: argparse.Namespace) -> int:
         scenes,
         str(images_dir),
         str(audio_dir),
-        str(output_path)
+        str(output_path),
     )
 
     if success:
-        logger.info(f"Video created: {output_path}")
+        logger.info("Video created: %s", output_path)
         return 0
-    else:
-        logger.error("Video creation failed")
-        return 1
+
+    logger.error("Video creation failed")
+    return 1
 
 
 async def run_full_pipeline(args: argparse.Namespace) -> int:
     """Run the complete pipeline."""
-    logger.info(f"Running full pipeline for: {args.chapter}")
+    logger.info("Running full pipeline for: %s", args.chapter)
 
     chapter_data = load_json(args.chapter)
-    
-    # Normalize chapter data format
-    if 'id' in chapter_data and 'chapter_number' not in chapter_data:
-        chapter_data['chapter_number'] = chapter_data['id']
-    
-    chapter_num = chapter_data['chapter_number']
 
-    # Create working directory
+    if "id" in chapter_data and "chapter_number" not in chapter_data:
+        chapter_data["chapter_number"] = chapter_data["id"]
+
+    chapter_num = chapter_data["chapter_number"]
+
     work_dir = args.output or Path(f"data/pipeline_ch{chapter_num:04d}")
     ensure_output_dir(work_dir)
 
@@ -180,7 +186,6 @@ async def run_full_pipeline(args: argparse.Namespace) -> int:
     audio_dir = work_dir / "audio"
     video_path = work_dir / f"chapter_{chapter_num:04d}.mp4"
 
-    # Step 1: Extract scenes
     logger.info("=" * 60)
     logger.info("STEP 1: Extracting scenes")
     logger.info("=" * 60)
@@ -188,7 +193,6 @@ async def run_full_pipeline(args: argparse.Namespace) -> int:
     if await extract_scenes(extract_args) != 0:
         return 1
 
-    # Step 2: Generate images
     logger.info("=" * 60)
     logger.info("STEP 2: Generating images")
     logger.info("=" * 60)
@@ -196,12 +200,11 @@ async def run_full_pipeline(args: argparse.Namespace) -> int:
         scenes=scenes_path,
         output=images_dir,
         force=False,
-        continue_on_error=True
+        continue_on_error=True,
     )
     if await generate_images(image_args) != 0:
         return 1
 
-    # Step 3: Generate audio
     logger.info("=" * 60)
     logger.info("STEP 3: Generating audio")
     logger.info("=" * 60)
@@ -209,12 +212,11 @@ async def run_full_pipeline(args: argparse.Namespace) -> int:
         scenes=scenes_path,
         output=audio_dir,
         concurrent=3,
-        continue_on_error=True
+        continue_on_error=True,
     )
     if await generate_audio(audio_args) != 0:
         return 1
 
-    # Step 4: Build video
     logger.info("=" * 60)
     logger.info("STEP 4: Building video")
     logger.info("=" * 60)
@@ -222,74 +224,67 @@ async def run_full_pipeline(args: argparse.Namespace) -> int:
         scenes=scenes_path,
         images=images_dir,
         audio=audio_dir,
-        output=video_path
+        output=video_path,
     )
     if await build_video(video_args) != 0:
         return 1
 
     logger.info("=" * 60)
-    logger.info(f"PIPELINE COMPLETE: {video_path}")
+    logger.info("PIPELINE COMPLETE: %s", video_path)
     logger.info("=" * 60)
     return 0
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Novel Video Generator - Convert text chapters to narrated videos"
+        description="Novel Video Generator - Convert text chapters to narrated videos",
     )
     parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logging level"
+        help="Logging level",
     )
 
-    subparsers = parser.add_subparsers(dest='command', required=True)
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Extract scenes command
-    extract_parser = subparsers.add_parser('extract', help='Extract scenes from chapter')
-    extract_parser.add_argument('chapter', type=Path, help='Path to chapter JSON file')
-    extract_parser.add_argument('-o', '--output', type=Path, help='Output scenes JSON path')
+    extract_parser = subparsers.add_parser("extract", help="Extract scenes from chapter")
+    extract_parser.add_argument("chapter", type=Path, help="Path to chapter JSON file")
+    extract_parser.add_argument("-o", "--output", type=Path, help="Output scenes JSON path")
 
-    # Generate images command
-    images_parser = subparsers.add_parser('images', help='Generate images for scenes')
-    images_parser.add_argument('scenes', type=Path, help='Path to scenes JSON file')
-    images_parser.add_argument('-o', '--output', type=Path, help='Output directory for images')
-    images_parser.add_argument('-f', '--force', action='store_true', help='Regenerate existing images')
-    images_parser.add_argument('--continue-on-error', action='store_true', help='Continue if some images fail')
+    images_parser = subparsers.add_parser("images", help="Generate images for scenes")
+    images_parser.add_argument("scenes", type=Path, help="Path to scenes JSON file")
+    images_parser.add_argument("-o", "--output", type=Path, help="Output directory for images")
+    images_parser.add_argument("-f", "--force", action="store_true", help="Regenerate existing images")
+    images_parser.add_argument("--continue-on-error", action="store_true", help="Continue if some images fail")
 
-    # Generate audio command
-    audio_parser = subparsers.add_parser('audio', help='Generate audio for scenes')
-    audio_parser.add_argument('scenes', type=Path, help='Path to scenes JSON file')
-    audio_parser.add_argument('-o', '--output', type=Path, help='Output directory for audio')
-    audio_parser.add_argument('-c', '--concurrent', type=int, default=3, help='Max concurrent generations')
-    audio_parser.add_argument('--continue-on-error', action='store_true', help='Continue if some audio fails')
+    audio_parser = subparsers.add_parser("audio", help="Generate audio for scenes")
+    audio_parser.add_argument("scenes", type=Path, help="Path to scenes JSON file")
+    audio_parser.add_argument("-o", "--output", type=Path, help="Output directory for audio")
+    audio_parser.add_argument("-c", "--concurrent", type=int, default=3, help="Max concurrent generations")
+    audio_parser.add_argument("--continue-on-error", action="store_true", help="Continue if some audio fails")
 
-    # Build video command
-    video_parser = subparsers.add_parser('video', help='Build video from scenes, images, and audio')
-    video_parser.add_argument('scenes', type=Path, help='Path to scenes JSON file')
-    video_parser.add_argument('--images', type=Path, help='Directory containing images')
-    video_parser.add_argument('--audio', type=Path, help='Directory containing audio')
-    video_parser.add_argument('-o', '--output', type=Path, help='Output video path')
+    video_parser = subparsers.add_parser("video", help="Build video from scenes, images, and audio")
+    video_parser.add_argument("scenes", type=Path, help="Path to scenes JSON file")
+    video_parser.add_argument("--images", type=Path, help="Directory containing images")
+    video_parser.add_argument("--audio", type=Path, help="Directory containing audio")
+    video_parser.add_argument("-o", "--output", type=Path, help="Output video path")
 
-    # Full pipeline command
-    pipeline_parser = subparsers.add_parser('pipeline', help='Run full pipeline')
-    pipeline_parser.add_argument('chapter', type=Path, help='Path to chapter JSON file')
-    pipeline_parser.add_argument('-o', '--output', type=Path, help='Working directory for pipeline')
+    pipeline_parser = subparsers.add_parser("pipeline", help="Run full pipeline")
+    pipeline_parser.add_argument("chapter", type=Path, help="Path to chapter JSON file")
+    pipeline_parser.add_argument("-o", "--output", type=Path, help="Working directory for pipeline")
 
     args = parser.parse_args()
 
-    # Setup logging
     setup_logging(level=args.log_level)
 
-    # Route to appropriate command
     commands = {
-        'extract': extract_scenes,
-        'images': generate_images,
-        'audio': generate_audio,
-        'video': build_video,
-        'pipeline': run_full_pipeline,
+        "extract": extract_scenes,
+        "images": generate_images,
+        "audio": generate_audio,
+        "video": build_video,
+        "pipeline": run_full_pipeline,
     }
 
     try:
@@ -299,9 +294,9 @@ def main():
         logger.info("Interrupted by user")
         sys.exit(130)
     except Exception as e:
-        logger.error(f"Unexpected error: {e}", exc_info=True)
+        logger.error("Unexpected error: %s", e, exc_info=True)
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

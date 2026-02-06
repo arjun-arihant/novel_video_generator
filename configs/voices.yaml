@@ -1,20 +1,53 @@
 # Voice configuration for TTS
-# Available Gemini voices: Puck, Charon, Kore, Fenrir, Aoede
+# Want2GP Qwen3 TTS voice presets
 voices:
-  narrator:
-    name: "Puck"  # Neutral, balanced voice
-    provider: "gemini"
+  narrator_male_1:
+    name: "narrator_m_1"
+    provider: "want2gp"
     rate: 1.0
     pitch: 0.0
-
-  male_protagonist:
-    name: "Fenrir"  # Deeper male voice
-    provider: "gemini"
+  narrator_male_2:
+    name: "narrator_m_2"
+    provider: "want2gp"
     rate: 1.0
     pitch: 0.0
-
-  female_protagonist:
-    name: "Kore"  # Softer female voice
-    provider: "gemini"
+  narrator_male_3:
+    name: "narrator_m_3"
+    provider: "want2gp"
+    rate: 1.0
+    pitch: 0.0
+  narrator_male_4:
+    name: "narrator_m_4"
+    provider: "want2gp"
+    rate: 1.0
+    pitch: 0.0
+  narrator_male_5:
+    name: "narrator_m_5"
+    provider: "want2gp"
+    rate: 1.0
+    pitch: 0.0
+  narrator_female_1:
+    name: "narrator_f_1"
+    provider: "want2gp"
+    rate: 1.0
+    pitch: 0.0
+  narrator_female_2:
+    name: "narrator_f_2"
+    provider: "want2gp"
+    rate: 1.0
+    pitch: 0.0
+  narrator_female_3:
+    name: "narrator_f_3"
+    provider: "want2gp"
+    rate: 1.0
+    pitch: 0.0
+  narrator_female_4:
+    name: "narrator_f_4"
+    provider: "want2gp"
+    rate: 1.0
+    pitch: 0.0
+  narrator_female_5:
+    name: "narrator_f_5"
+    provider: "want2gp"
     rate: 1.0
     pitch: 0.0
