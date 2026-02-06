@@ -1,9 +1,12 @@
 # Core dependencies
-google-generativeai>=0.3.0
 python-dotenv>=1.0.0
 PyYAML>=6.0
 requests>=2.31.0
 tenacity>=8.2.0
+streamlit>=1.37.0
+ebooklib>=0.18
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
 
 # Note: FFmpeg is required but must be installed separately
 # Download from: https://ffmpeg.org/download.html

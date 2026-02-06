@@ -72,10 +72,10 @@ def validate_scenes(scenes_data: List[Dict[str, Any]]) -> None:
         raise ValidationError("Scenes list is empty")
 
     required_scene_fields = [
-        'visual_description',
-        'text_segment',
-        'characters',
-        'estimated_duration'
+        "visual_description",
+        "text_segment",
+        "characters",
+        "estimated_duration",
     ]
 
     for i, scene in enumerate(scenes_data):
@@ -88,6 +88,11 @@ def validate_scenes(scenes_data: List[Dict[str, Any]]) -> None:
         if not isinstance(scene['characters'], list):
             raise ValidationError(
                 f"Scene {i}: 'characters' must be a list"
+            )
+
+        if 'dialogues' in scene and not isinstance(scene['dialogues'], list):
+            raise ValidationError(
+                f"Scene {i}: 'dialogues' must be a list when provided"
             )
 
     logger.info(f"Validated {len(scenes_data)} scenes")
