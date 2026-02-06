@@ -32,6 +32,7 @@ Create a `.env` file in the repo root:
 OPENROUTER_API_KEY=your_openrouter_key
 OPENROUTER_MODEL=openrouter/auto
 WANT2GP_API_KEY=your_want2gp_key
+WANT2GP_BASE_URL=http://localhost:8000/v1
 WANT2GP_IMAGE_MODEL=z-image
 WANT2GP_TTS_MODEL=qwen3:tts
 ```
