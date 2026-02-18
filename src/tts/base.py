@@ -10,9 +10,8 @@ from typing import Optional, Union
 class VoiceConfig:
     """Configuration for a TTS voice."""
     name: str
-    provider: str = "gemini"
-    rate: float = 1.0
-    pitch: float = 0.0
+    provider: str = "kokoro"
+    speed: float = 1.0
 
 
 class TTSProvider(ABC):

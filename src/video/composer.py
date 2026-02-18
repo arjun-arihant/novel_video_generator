@@ -75,7 +75,7 @@ class VideoComposer:
             # Generate individual scene clips
             for i in range(len(scenes)):
                 image_path = image_dir / f"scene_{i:03d}.png"
-                audio_path = audio_dir / f"scene_{i:03d}.mp3"
+                audio_path = audio_dir / f"scene_{i:03d}.wav"
                 clip_path = temp_path / f"clip_{i:03d}.mp4"
 
                 if not image_path.exists():

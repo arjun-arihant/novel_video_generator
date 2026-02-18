@@ -71,19 +71,27 @@ def validate_scenes(scenes_data: List[Dict[str, Any]]) -> None:
     if len(scenes_data) == 0:
         raise ValidationError("Scenes list is empty")
 
-    required_scene_fields = [
+    required_common_fields = [
         "visual_description",
-        "text_segment",
         "characters",
         "estimated_duration",
     ]
 
     for i, scene in enumerate(scenes_data):
-        for field in required_scene_fields:
+        for field in required_common_fields:
             if field not in scene:
                 raise ValidationError(
                     f"Scene {i} missing required field: {field}"
                 )
+
+        # Check for content: either 'sequence' (new) or 'text_segment'/'narration' (legacy)
+        has_content = (
+            "sequence" in scene
+            or "text_segment" in scene
+            or "narration" in scene
+        )
+        if not has_content:
+             raise ValidationError(f"Scene {i} missing content field ('sequence', 'text_segment', or 'narration')")
 
         if not isinstance(scene['characters'], list):
             raise ValidationError(

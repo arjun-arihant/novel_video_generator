@@ -12,16 +12,12 @@ env/
 dist/
 build/
 
-# Environment
+# Environment & Secrets
 .env
 .env.local
+.env.*.local
 
-# Temporary files
-temp_*.json
-temp_*/
-nul
-
-# IDE
+# IDE & Editors
 .vscode/
 .idea/
 *.swp
@@ -32,14 +28,28 @@ nul
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Project outputs
+# Project outputs (auto-created by pipeline)
 outputs/
-data/images/
 data/audio/
+data/images/
 data/videos/
 data/scenes/
+data/output/
+data/temp/
+data/uploads/
+data/web_runs/
 data/pipeline_*/
+data/consistency/
 
-# Test outputs
-test_audio.mp3
+# Temp directories
+temp_*/
+
+# Test artifacts
+test_output/
+test_audio.*
+test_image.*
+test_simple.*
+*.test.wav
+*.test.mp3

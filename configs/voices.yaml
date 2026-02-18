@@ -1,53 +1,52 @@
 # Voice configuration for TTS
-# Want2GP Qwen3 TTS voice presets
+# Kokoro-82M voice presets (see KOKORO_TTS_API_REFERENCE.md for full list)
 voices:
-  narrator_male_1:
-    name: "narrator_m_1"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
-  narrator_male_2:
-    name: "narrator_m_2"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
-  narrator_male_3:
-    name: "narrator_m_3"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
-  narrator_male_4:
-    name: "narrator_m_4"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
-  narrator_male_5:
-    name: "narrator_m_5"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
+  # --- Narrators ---
+  narrator:
+    name: "af_heart"
+    provider: "kokoro"
+    speed: 1.0
+
+  # --- Female voices ---
   narrator_female_1:
-    name: "narrator_f_1"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
+    name: "af_heart"
+    provider: "kokoro"
+    speed: 1.0
   narrator_female_2:
-    name: "narrator_f_2"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
+    name: "af_bella"
+    provider: "kokoro"
+    speed: 1.0
   narrator_female_3:
-    name: "narrator_f_3"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
+    name: "af_sarah"
+    provider: "kokoro"
+    speed: 1.0
   narrator_female_4:
-    name: "narrator_f_4"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
+    name: "bf_emma"
+    provider: "kokoro"
+    speed: 1.0
   narrator_female_5:
-    name: "narrator_f_5"
-    provider: "want2gp"
-    rate: 1.0
-    pitch: 0.0
+    name: "af_nova"
+    provider: "kokoro"
+    speed: 1.0
+
+  # --- Male voices ---
+  narrator_male_1:
+    name: "am_michael"
+    provider: "kokoro"
+    speed: 1.0
+  narrator_male_2:
+    name: "am_fenrir"
+    provider: "kokoro"
+    speed: 1.0
+  narrator_male_3:
+    name: "am_puck"
+    provider: "kokoro"
+    speed: 1.0
+  narrator_male_4:
+    name: "bm_fable"
+    provider: "kokoro"
+    speed: 1.0
+  narrator_male_5:
+    name: "bm_george"
+    provider: "kokoro"
+    speed: 1.0

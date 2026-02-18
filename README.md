@@ -1,98 +1,126 @@
 # Novel Video Generator
 
-A modern Python pipeline + Web UI that converts novel chapters into narrated, illustrated videos.
+A Python pipeline + Web UI that converts novel chapters into narrated, illustrated videos.
 
-## Highlights
+## Pipeline
 
-- **Step-by-step workflow**: upload EPUB → choose chapters → review scenes → generate video
-- **LLM extraction (OpenRouter)**: scene segmentation with narration + dialogue split
-- **Image generation (Want2GP Z-Image)**: consistent Manhua-style scene art
-- **TTS (Want2GP Qwen3:tts)**: narrator + character voices with per-character presets
-- **Consistency store**: persistent character & location profiles for visual continuity
-- **Batch mode**: generate multiple chapters without manual scene review
+```
+EPUB → Scene Extraction (OpenRouter LLM) → Images (WanGP CLI) → Audio (Kokoro TTS) → Video (FFmpeg)
+```
+
+## Project Structure
+
+```
+novel_video_generator/
+├── cli.py                  # CLI entry point
+├── configs/
+│   └── voices.yaml         # Kokoro voice presets (10 voices)
+├── data/
+│   └── ihacw/              # Novel chapter data
+├── src/
+│   ├── common/             # Config, logging, retry, validation
+│   ├── consistency/        # Character/location store + voice assignment
+│   ├── image/              # WanGP CLI image generator
+│   ├── llm/                # OpenRouter client
+│   ├── parser/             # Scene extraction from text
+│   ├── storage/            # EPUB loader
+│   ├── tts/                # Kokoro TTS engine + manager
+│   ├── video/              # FFmpeg video composer
+│   └── web/                # Streamlit web UI
+├── tests/                  # Test directory
+├── z_image_settings.json   # WanGP Z-Image settings template
+├── KOKORO_TTS_API_REFERENCE.md
+├── Wan2GP_CLI_headless_procesing_instructions.md
+├── requirements.txt
+└── .env                    # Environment config (not committed)
+```
 
 ## Prerequisites
 
-- Python 3.10+
-- **OpenRouter API key** (scene extraction)
-- **Want2GP API key** (image + TTS)
-- `ffmpeg` installed and in your system PATH
+| Dependency | Purpose | Install |
+|-----------|---------|---------|
+| Python 3.10+ | Runtime | [python.org](https://python.org) |
+| OpenRouter API key | Scene extraction | [openrouter.ai](https://openrouter.ai) |
+| WanGP | Image generation | [GitHub](https://github.com/deepbeepmeep/WanGP) (local install) |
+| Kokoro TTS | Text-to-speech | [HuggingFace](https://huggingface.co/hexgrad/Kokoro-82M) (local server) |
+| FFmpeg | Video composition | [ffmpeg.org](https://ffmpeg.org/download.html) |
+| Conda | WanGP environment | [conda.io](https://docs.conda.io/) |
 
 ## Setup
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+.venv\Scripts\activate      # Windows
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in the repo root:
+Edit `.env` with your keys and paths:
 
 ```env
-OPENROUTER_API_KEY=your_openrouter_key
-OPENROUTER_MODEL=openrouter/auto
-WANT2GP_API_KEY=your_want2gp_key
-WANT2GP_BASE_URL=http://localhost:8000/v1
-WANT2GP_IMAGE_MODEL=z-image
-WANT2GP_TTS_MODEL=qwen3:tts
+OPENROUTER_API_KEY=your_key_here
+KOKORO_BASE_URL=http://localhost:8000
+WANGP_PATH=D:\GeneAI\Wan2GP
 ```
 
-## Web UI
+### Start Services
 
+**Kokoro TTS:**
+```bash
+# Start server, then verify:
+curl http://localhost:8000/health
+```
+
+**WanGP:**
+```bash
+cd D:\GeneAI\Wan2GP
+conda activate wan2gp
+python wgp.py  # for web UI, or use --process for headless
+```
+
+## Usage
+
+### Web UI
 ```bash
 streamlit run -m src.web.app
 ```
 
-### Web UI Flow
+1. Upload EPUB → select chapters → choose voice → review scenes → generate
 
-1. **Upload EPUB** → chapters extracted
-2. **Select chapter(s)** → estimated narration length (180 wpm)
-3. **Choose narrator voice** → 10 presets (5 male, 5 female)
-4. **Scene review (optional)** → edit scene visuals, narration, dialogues
-5. **Generate** → images, audio, and final stitched video
-
-Batch mode skips the scene review and goes straight to generation.
-
-## CLI Usage
-
+### CLI
 ```bash
-# Full pipeline
-python cli.py pipeline data/ihacw/chapters/ihacw_ch0001.json
-
-# Individual steps
-python cli.py extract chapter.json
-python cli.py images scenes.json
-python cli.py audio scenes.json
-python cli.py video scenes.json
+python cli.py pipeline chapter.json       # Full pipeline
+python cli.py extract chapter.json        # Scene extraction only
+python cli.py images scenes.json          # Image generation only
+python cli.py audio scenes.json           # TTS only
+python cli.py video scenes.json           # Video assembly only
 ```
 
-## Scene Format
+## Voices
 
-Scenes include narration and dialogue split to enable character voices:
+10 Kokoro voices available (5 female, 5 male):
 
-```json
-{
-  "id": 1,
-  "title": "A distant storm",
-  "visual_description": "...",
-  "text_segment": "...",
-  "narration": "...",
-  "dialogues": [{"speaker": "Ari", "line": "..."}],
-  "characters": ["Ari"],
-  "locations": ["Hilltop"],
-  "estimated_duration": 12
-}
-```
-
-## Consistency Store
-
-Character and location profiles are stored under `data/consistency/` and reused on subsequent runs to keep visuals stable.
+| Key | Voice | Gender | Description |
+|-----|-------|--------|-------------|
+| narrator_female_1 | af_heart | F | ❤️ Warm, flagship (A grade) |
+| narrator_female_2 | af_bella | F | 🔥 Intimate, husky |
+| narrator_female_3 | af_sarah | F | 📚 Friendly educator |
+| narrator_female_4 | bf_emma | F | 🇬🇧 British professional |
+| narrator_female_5 | af_nova | F | 🌟 Natural, approachable |
+| narrator_male_1 | am_michael | M | 🎙️ Warm narrator |
+| narrator_male_2 | am_fenrir | M | ⚡ Energetic, clear |
+| narrator_male_3 | am_puck | M | 🎮 Youthful, upbeat |
+| narrator_male_4 | bm_fable | M | 📖 Refined storyteller |
+| narrator_male_5 | bm_george | M | 🎩 British classic |
 
 ## Troubleshooting
 
-- **Missing API keys**: ensure `OPENROUTER_API_KEY` and `WANT2GP_API_KEY` are set.
-- **FFmpeg not found**: install and ensure it is on your PATH.
+| Issue | Fix |
+|-------|-----|
+| Kokoro not responding | Verify `curl http://localhost:8000/health` returns OK |
+| WanGP not found | Set `WANGP_PATH` in `.env` to WanGP install directory |
+| Missing API key | Set `OPENROUTER_API_KEY` in `.env` |
+| FFmpeg not found | Install FFmpeg and add to PATH |
 
 ## License
 
-MIT License (see LICENSE file)
+MIT

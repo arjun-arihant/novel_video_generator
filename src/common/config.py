@@ -15,7 +15,7 @@ class OpenRouterConfig:
     temperature: float = 0.3
     max_output_tokens: int = 4096
     timeout: int = 60
-    
+
     def __post_init__(self):
         if not self.api_key:
             raise ValueError("OpenRouter API key is required")
@@ -24,30 +24,48 @@ class OpenRouterConfig:
 
 
 @dataclass
-class Want2GpConfig:
-    """Configuration for Want2GP APIs (image + TTS)."""
-    api_key: str
-    base_url: str = "https://api.want2gp.ai/v1"
-    image_model: str = "z-image"
-    tts_model: str = "qwen3:tts"
-    timeout: int = 120
+class KokoroConfig:
+    """Configuration for Kokoro TTS API (localhost REST service)."""
+    base_url: str = "http://localhost:8000"
+    default_voice: str = "af_heart"
+    speed: float = 1.0
+    format: str = "wav"
+    timeout: int = 60
 
     def __post_init__(self):
-        if not self.api_key:
-            raise ValueError("WANT2GP_API_KEY is required")
+        if self.speed < 0.5 or self.speed > 2.0:
+            raise ValueError("Speed must be between 0.5 and 2.0")
+        if self.format not in ("wav", "mp3", "ogg", "flac"):
+            raise ValueError("Format must be one of: wav, mp3, ogg, flac")
+
+
+@dataclass
+class WanGPConfig:
+    """Configuration for WanGP CLI (local image generation)."""
+    wgp_path: str = r"D:\GeneAI\Wan2GP"
+    conda_env: str = "wan2gp"
+    profile: int = 4
+    attention: str = "sdpa"
+    timeout: int = 300
+
+    def __post_init__(self):
+        if self.profile not in (1, 2, 3, 4, 5):
+            raise ValueError("Profile must be 1-5")
+        if self.attention not in ("sdpa", "flash", "sage", "sage2"):
+            raise ValueError("Attention must be one of: sdpa, flash, sage, sage2")
 
 
 @dataclass
 class ImageGenerationConfig:
     """Configuration for image generation."""
-    model: str = "flux"
-    width: int = 1280
-    height: int = 720
+    model: str = "z_image"
+    width: int = 1920
+    height: int = 1088
     seed: Optional[int] = None
-    max_retries: int = 10
-    retry_delay_base: float = 2.0
-    timeout: int = 120
-    
+    max_retries: int = 3
+    retry_delay_base: float = 5.0
+    timeout: int = 300
+
     def __post_init__(self):
         if self.width < 64 or self.width > 2048:
             raise ValueError("Width must be between 64 and 2048")
@@ -60,18 +78,15 @@ class ImageGenerationConfig:
 @dataclass
 class TTSConfig:
     """Configuration for text-to-speech."""
-    model: str = "gemini"
-    voice: str = "Puck"
-    rate: float = 1.0
-    pitch: float = 0.0
+    provider: str = "kokoro"
+    voice: str = "af_heart"
+    speed: float = 1.0
     max_concurrent: int = 3
-    timeout: int = 30
-    
+    timeout: int = 60
+
     def __post_init__(self):
-        if self.rate < 0.5 or self.rate > 2.0:
-            raise ValueError("Rate must be between 0.5 and 2.0")
-        if self.pitch < -1.0 or self.pitch > 1.0:
-            raise ValueError("Pitch must be between -1.0 and 1.0")
+        if self.speed < 0.5 or self.speed > 2.0:
+            raise ValueError("Speed must be between 0.5 and 2.0")
         if self.max_concurrent < 1:
             raise ValueError("max_concurrent must be at least 1")
 
@@ -89,7 +104,7 @@ class VideoConfig:
     ken_burns_intensity: float = 0.05
     ken_burns_speed: float = 0.02
     transition_duration: float = 0.5
-    
+
     def __post_init__(self):
         if self.fps < 1 or self.fps > 120:
             raise ValueError("FPS must be between 1 and 120")
@@ -102,7 +117,8 @@ class VideoConfig:
 class PipelineConfig:
     """Main pipeline configuration."""
     openrouter: OpenRouterConfig
-    want2gp: Want2GpConfig
+    kokoro: KokoroConfig = field(default_factory=KokoroConfig)
+    wangp: WanGPConfig = field(default_factory=WanGPConfig)
     image: ImageGenerationConfig = field(default_factory=ImageGenerationConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
@@ -111,25 +127,21 @@ class PipelineConfig:
     log_level: str = "INFO"
     continue_on_error: bool = True
     max_scenes: int = 10
-    
+
     def __post_init__(self):
-        # Ensure directories exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        
+
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if self.log_level not in valid_levels:
             raise ValueError(f"log_level must be one of {valid_levels}")
-    
+
     @classmethod
     def from_env(cls) -> "PipelineConfig":
         """Create configuration from environment variables."""
         openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        want2gp_key = os.getenv("WANT2GP_API_KEY")
         if not openrouter_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is required")
-        if not want2gp_key:
-            raise ValueError("WANT2GP_API_KEY environment variable is required")
 
         openrouter_config = OpenRouterConfig(
             api_key=openrouter_key,
@@ -139,31 +151,41 @@ class PipelineConfig:
             timeout=int(os.getenv("OPENROUTER_TIMEOUT", "60")),
         )
 
-        want2gp_config = Want2GpConfig(
-            api_key=want2gp_key,
-            base_url=os.getenv("WANT2GP_BASE_URL", "https://api.want2gp.ai/v1"),
-            image_model=os.getenv("WANT2GP_IMAGE_MODEL", "z-image"),
-            tts_model=os.getenv("WANT2GP_TTS_MODEL", "qwen3:tts"),
-            timeout=int(os.getenv("WANT2GP_TIMEOUT", "120")),
+        kokoro_config = KokoroConfig(
+            base_url=os.getenv("KOKORO_BASE_URL", "http://localhost:8000"),
+            default_voice=os.getenv("KOKORO_DEFAULT_VOICE", "af_heart"),
+            speed=float(os.getenv("KOKORO_SPEED", "1.0")),
+            format=os.getenv("KOKORO_FORMAT", "wav"),
+            timeout=int(os.getenv("KOKORO_TIMEOUT", "60")),
         )
-        
+
+        wangp_config = WanGPConfig(
+            wgp_path=os.getenv("WANGP_PATH", r"D:\GeneAI\Wan2GP"),
+            conda_env=os.getenv("WANGP_CONDA_ENV", "wan2gp"),
+            profile=int(os.getenv("WANGP_PROFILE", "4")),
+            attention=os.getenv("WANGP_ATTENTION", "sdpa"),
+            timeout=int(os.getenv("WANGP_TIMEOUT", "300")),
+        )
+
         return cls(
             openrouter=openrouter_config,
-            want2gp=want2gp_config,
+            kokoro=kokoro_config,
+            wangp=wangp_config,
             output_dir=Path(os.getenv("OUTPUT_DIR", "data/output")),
             temp_dir=Path(os.getenv("TEMP_DIR", "data/temp")),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             continue_on_error=os.getenv("CONTINUE_ON_ERROR", "true").lower() == "true",
         )
-    
+
     @classmethod
     def from_yaml(cls, path: Path) -> "PipelineConfig":
         """Load configuration from YAML file."""
         with open(path, 'r') as f:
             data = yaml.safe_load(f)
-        
+
         openrouter_data = data.get('openrouter', {})
-        want2gp_data = data.get('want2gp', {})
+        kokoro_data = data.get('kokoro', {})
+        wangp_data = data.get('wangp', {})
 
         openrouter_config = OpenRouterConfig(
             api_key=os.getenv("OPENROUTER_API_KEY", openrouter_data.get('api_key', '')),
@@ -173,22 +195,31 @@ class PipelineConfig:
             timeout=openrouter_data.get('timeout', 60),
         )
 
-        want2gp_config = Want2GpConfig(
-            api_key=os.getenv("WANT2GP_API_KEY", want2gp_data.get('api_key', '')),
-            base_url=want2gp_data.get('base_url', 'https://api.want2gp.ai/v1'),
-            image_model=want2gp_data.get('image_model', 'z-image'),
-            tts_model=want2gp_data.get('tts_model', 'qwen3:tts'),
-            timeout=want2gp_data.get('timeout', 120),
+        kokoro_config = KokoroConfig(
+            base_url=kokoro_data.get('base_url', 'http://localhost:8000'),
+            default_voice=kokoro_data.get('default_voice', 'af_heart'),
+            speed=kokoro_data.get('speed', 1.0),
+            format=kokoro_data.get('format', 'wav'),
+            timeout=kokoro_data.get('timeout', 60),
         )
-        
+
+        wangp_config = WanGPConfig(
+            wgp_path=os.getenv("WANGP_PATH", wangp_data.get('wgp_path', r'D:\GeneAI\Wan2GP')),
+            conda_env=wangp_data.get('conda_env', 'wan2gp'),
+            profile=wangp_data.get('profile', 4),
+            attention=wangp_data.get('attention', 'sdpa'),
+            timeout=wangp_data.get('timeout', 300),
+        )
+
         return cls(
             openrouter=openrouter_config,
-            want2gp=want2gp_config,
+            kokoro=kokoro_config,
+            wangp=wangp_config,
             output_dir=Path(data.get('output_dir', 'data/output')),
             temp_dir=Path(data.get('temp_dir', 'data/temp')),
             log_level=data.get('log_level', 'INFO'),
         )
-    
+
     def to_yaml(self, path: Path) -> None:
         """Save configuration to YAML file."""
         data = {
@@ -198,35 +229,43 @@ class PipelineConfig:
                 'max_output_tokens': self.openrouter.max_output_tokens,
                 'timeout': self.openrouter.timeout,
             },
-            'want2gp': {
-                'base_url': self.want2gp.base_url,
-                'image_model': self.want2gp.image_model,
-                'tts_model': self.want2gp.tts_model,
-                'timeout': self.want2gp.timeout,
+            'kokoro': {
+                'base_url': self.kokoro.base_url,
+                'default_voice': self.kokoro.default_voice,
+                'speed': self.kokoro.speed,
+                'format': self.kokoro.format,
+                'timeout': self.kokoro.timeout,
+            },
+            'wangp': {
+                'wgp_path': self.wangp.wgp_path,
+                'conda_env': self.wangp.conda_env,
+                'profile': self.wangp.profile,
+                'attention': self.wangp.attention,
+                'timeout': self.wangp.timeout,
             },
             'image': {
                 'model': self.image.model,
                 'width': self.image.width,
                 'height': self.image.height,
-                'max_retries': self.image.max_retries
+                'max_retries': self.image.max_retries,
             },
             'tts': {
+                'provider': self.tts.provider,
                 'voice': self.tts.voice,
-                'rate': self.tts.rate,
-                'pitch': self.tts.pitch,
-                'max_concurrent': self.tts.max_concurrent
+                'speed': self.tts.speed,
+                'max_concurrent': self.tts.max_concurrent,
             },
             'video': {
                 'fps': self.video.fps,
                 'width': self.video.width,
                 'height': self.video.height,
-                'codec': self.video.codec
+                'codec': self.video.codec,
             },
             'output_dir': str(self.output_dir),
             'temp_dir': str(self.temp_dir),
-            'log_level': self.log_level
+            'log_level': self.log_level,
         }
-        
+
         with open(path, 'w') as f:
             yaml.dump(data, f, default_flow_style=False)
 
@@ -256,7 +295,6 @@ def get_api_key(provider: str) -> str:
     """Get API key by provider name."""
     env_map = {
         "openrouter": "OPENROUTER_API_KEY",
-        "want2gp": "WANT2GP_API_KEY",
     }
     env_var = env_map.get(provider.lower())
     if not env_var:
