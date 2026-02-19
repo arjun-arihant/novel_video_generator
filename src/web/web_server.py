@@ -27,7 +27,7 @@ if _ffmpeg_path and Path(_ffmpeg_path).exists():
     logging.info("Added FFmpeg to PATH: %s", _ffmpeg_path)
 
 from ..consistency.store import ConsistencyStore
-from ..consistency.voice_assigner import assign_voices_with_llm, AVAILABLE_VOICES
+from ..consistency.voice_assigner import assign_voices_with_llm
 from ..parser.openrouter_parser import SceneExtractor
 from ..common import ensure_output_dir
 
@@ -42,6 +42,11 @@ app = Flask(
 DATA_DIR = Path("data")
 UPLOAD_DIR = DATA_DIR / "uploads"
 WEB_RUN_DIR = DATA_DIR / "web_runs"
+
+# Serve generated files
+@app.route("/runs/<path:filename>")
+def serve_runs(filename):
+    return send_from_directory(WEB_RUN_DIR, filename)
 
 # Global state for SSE progress
 _progress_queues: dict[str, queue.Queue] = {}
@@ -81,6 +86,74 @@ def _get_cached_job(chapter_path: str) -> Optional[dict]:
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+
+from ..core.library_manager import LibraryManager
+
+# ── Library Management ────────────────────────────────────────
+
+
+@app.route("/api/library", methods=["GET"])
+def list_library():
+    """List all novels in the library."""
+    manager = LibraryManager()
+    return jsonify(manager.get_library())
+
+
+@app.route("/api/library/upload", methods=["POST"])
+def upload_novel():
+    """Upload and ingest an EPUB file."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    # Save to temp
+    temp_dir = UPLOAD_DIR / "temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    save_path = temp_dir / f.filename
+    f.save(str(save_path))
+
+    try:
+        manager = LibraryManager()
+        metadata = manager.create_novel_from_epub(str(save_path))
+        # Cleanup temp
+        if os.path.exists(save_path):
+            os.remove(save_path)
+        return jsonify(metadata)
+    except Exception as e:
+        logger.error("Upload failed: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/library/<novel_id>", methods=["GET"])
+def get_novel_details(novel_id):
+    """Get metadata for a specific novel."""
+    manager = LibraryManager()
+    novel = manager.get_novel(novel_id)
+    if not novel:
+        return jsonify({"error": "Novel not found"}), 404
+    return jsonify(novel)
+
+
+@app.route("/api/library/<novel_id>/chapters", methods=["GET"])
+def list_novel_chapters(novel_id):
+    """List chapters for a novel."""
+    manager = LibraryManager()
+    chapters = manager.get_chapters(novel_id)
+    return jsonify(chapters)
+
+
+@app.route("/api/library/<novel_id>/chapters/<chapter_id>", methods=["GET"])
+def get_novel_chapter(novel_id, chapter_id):
+    """Get content of a specific chapter."""
+    manager = LibraryManager()
+    content = manager.get_chapter_content(novel_id, chapter_id)
+    if not content:
+        return jsonify({"error": "Chapter not found"}), 404
+    return jsonify(content)
 
 
 # ── Chapter Management ────────────────────────────────────────
@@ -150,10 +223,29 @@ def extract_scenes():
     """Extract scenes from a chapter with enrichment + voice assignment."""
     body = request.json or {}
     chapter_path = body.get("chapter_path")
+    raw_text = body.get("text")
     force = body.get("force", False)
 
+    # Handle raw text input by saving it as a temporary chapter file
+    if raw_text:
+        timestamp = int(time.time())
+        filename = f"raw_input_{timestamp}.json"
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        chapter_path = str(UPLOAD_DIR / filename)
+        
+        chapter_data = {
+            "id": timestamp,
+            "chapter_number": 1,
+            "title": "Raw Input",
+            "content": [raw_text], # Treat whole text as one block for now, or split by newlines
+            "paragraphs": [p for p in raw_text.split('\n') if p.strip()]
+        }
+        
+        with open(chapter_path, "w", encoding="utf-8") as f:
+            json.dump(chapter_data, f, indent=2)
+
     if not chapter_path or not Path(chapter_path).exists():
-        return jsonify({"error": "Invalid chapter_path"}), 400
+        return jsonify({"error": "Invalid chapter_path or missing text"}), 400
 
     # Check cache first
     if not force:
@@ -335,19 +427,9 @@ def check_services():
         "detail": "Found" if wgp_script.exists() else f"wgp.py not found at {wangp_path}",
     }
 
-    # Kokoro TTS
-    import requests as req
-    kokoro_url = os.getenv("KOKORO_BASE_URL", "http://localhost:8000")
-    try:
-        r = req.get(f"{kokoro_url}/health", timeout=3)
-        data = r.json() if r.status_code == 200 else {}
-        status["kokoro"] = {
-            "available": r.status_code == 200,
-            "url": kokoro_url,
-            "detail": f"Online — {data.get('model', '?')} v{data.get('version', '?')}" if r.status_code == 200 else f"Error ({r.status_code})",
-        }
-    except Exception as e:
-        status["kokoro"] = {"available": False, "url": kokoro_url, "detail": str(e)}
+    # Kokoro TTS (Removed)
+    # status["kokoro"] = {"available": True, "detail": "Using Qwen3 Engine (internal)"}
+
 
     # FFmpeg
     try:
@@ -464,39 +546,28 @@ def run_pipeline():
                     _send_progress(job_id, "images_skip", 60, f"Image generation error: {e}")
                     logger.error("Image generation failed:\n%s", traceback.format_exc())
 
-            # Step 3: Audio
+            # Step 3: Audio (Qwen3)
             audio_dir = run_dir / "audio"
             audio_dir.mkdir(exist_ok=True)
-            kokoro_url = os.getenv("KOKORO_BASE_URL", "http://localhost:8000")
-            kokoro_ok = False
+            
             try:
-                import requests as req
-                r = req.get(f"{kokoro_url}/health", timeout=3)
-                kokoro_ok = r.status_code == 200
-            except Exception:
-                pass
+                from ..tts.manager import TTSManager
+                tts = TTSManager()
+                _send_progress(job_id, "audio", 65, "Generating audio (Qwen3)...")
 
-            if not kokoro_ok:
-                _send_progress(job_id, "audio_skip", 85,
-                    f"Audio generation skipped: Kokoro TTS not running at {kokoro_url}")
-            else:
-                try:
-                    from ..tts.manager import TTSManager
-                    tts = TTSManager()
-                    _send_progress(job_id, "audio", 65, "Generating audio...")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                # Use Qwen3 3-pass strategy
+                results = loop.run_until_complete(
+                    tts.generate_chapter_audio(scenes, audio_dir, default_voice="narrator")
+                )
+                loop.close()
 
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    results = loop.run_until_complete(
-                        tts.generate_batch_audio(scenes, audio_dir, max_concurrent=2)
-                    )
-                    loop.close()
-
-                    ok_count = sum(1 for r in results if r)
-                    _send_progress(job_id, "audio_done", 85, f"Audio: {ok_count}/{len(scenes)} generated")
-                except Exception as e:
-                    _send_progress(job_id, "audio_skip", 85, f"Audio generation error: {e}")
-                    logger.error("Audio generation failed:\n%s", traceback.format_exc())
+                ok_count = sum(1 for r in results if r)
+                _send_progress(job_id, "audio_done", 85, f"Audio: {ok_count}/{len(scenes)} generated")
+            except Exception as e:
+                _send_progress(job_id, "audio_skip", 85, f"Audio generation error: {e}")
+                logger.error("Audio generation failed:\n%s", traceback.format_exc())
 
             # Step 4: Video
             has_images = any(images_dir.glob("*.png")) or any(images_dir.glob("*.jpg"))
@@ -584,7 +655,170 @@ def list_outputs(chapter_id: str):
 
 @app.route("/api/voices", methods=["GET"])
 def get_voices():
-    return jsonify(AVAILABLE_VOICES)
+    # Only expose Qwen3 as capable engine? 
+    # Or just return empty list as we don't have presets anymore
+    return jsonify({})
+
+# ── Generation Endpoints ──────────────────────────────────────
+@app.route("/api/generate/audio", methods=["POST"])
+def regenerate_audio():
+    """Regenerate audio for specific scenes."""
+    body = request.json or {}
+    job_id = body.get("job_id")
+    indices = body.get("scene_indices", []) # List of integers
+
+    if not job_id:
+        return jsonify({"error": "Missing job_id"}), 400
+
+    scenes_path = WEB_RUN_DIR / job_id / "scenes.json"
+    if not scenes_path.exists():
+        return jsonify({"error": "Job not found"}), 404
+
+    with open(scenes_path, "r", encoding="utf-8") as f:
+        all_scenes = json.load(f)
+
+    # Filter scenes
+    if not indices:
+        target_scenes = all_scenes # Regen all
+        target_indices = range(len(all_scenes))
+    else:
+        target_scenes = []
+        target_indices = []
+        for idx in indices:
+            if 0 <= idx < len(all_scenes):
+                target_scenes.append(all_scenes[idx])
+                target_indices.append(idx)
+    
+    if not target_scenes:
+        return jsonify({"error": "No valid scenes selected"}), 400
+
+    regen_job_id = f"regen_audio_{int(time.time())}"
+    _progress_queues[regen_job_id] = queue.Queue()
+
+    def _run():
+        try:
+            _send_progress(regen_job_id, "start", 0, f"Regenerating audio for {len(target_scenes)} scenes...")
+            
+            run_dir = WEB_RUN_DIR / job_id
+            audio_dir = run_dir / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+
+            from ..tts.manager import TTSManager
+            tts = TTSManager()
+            
+            # Since we need to update specific files (scene_XXX.wav),
+            # generate_chapter_audio returns a list matching input scenes.
+            # We map the results back to the original indices?
+            # Actually, generate_chapter_audio saves files to output_dir names as scene_000.wav based on index in `scenes` list.
+            # NO, it uses `s_idx` from built-in enumeration.
+            # If we pass a subset [scene 5, scene 8], it will save as scene_000.wav, scene_001.wav?
+            # YES. This is a problem.
+            # We need to preserve the original filenames (scene_005.wav).
+            # I need to modify `generate_chapter_audio` to accept explicit output filenames or indices?
+            # OR, I temporarily patch the `s_idx` logic in `generate_chapter_audio`.
+            # OR, I just rename the files after generation?
+            # Renaming is easier.
+            
+            # Create a temp dir for this partial generation
+            with tempfile.TemporaryDirectory() as tmp_gen_dir:
+                tmp_path = Path(tmp_gen_dir)
+                
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                # This will generate scene_000.wav ... scene_N.wav in tmp_path
+                results = loop.run_until_complete(
+                    tts.generate_chapter_audio(target_scenes, tmp_path)
+                )
+                loop.close()
+                
+                # Move files to real audio_dir with correct names
+                success_count = 0
+                for i, result_path in enumerate(results):
+                    real_idx = target_indices[i]
+                    if result_path and os.path.exists(result_path):
+                        src = Path(result_path)
+                        dst = audio_dir / f"scene_{real_idx:03d}.wav"
+                        import shutil
+                        shutil.copy2(src, dst)
+                        success_count += 1
+                        
+            _send_progress(regen_job_id, "complete", 100, f"Regenerated {success_count}/{len(target_scenes)} audio clips")
+             
+        except Exception as e:
+            logger.error("Audio regen failed: %s", e, exc_info=True)
+            _progress_queues[regen_job_id].put({"step": "error", "percent": -1, "detail": str(e)})
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    return jsonify({"job_id": regen_job_id, "status": "started"})
+
+
+@app.route("/api/generate/image", methods=["POST"])
+def regenerate_image():
+    """Regenerate images for specific scenes."""
+    body = request.json or {}
+    job_id = body.get("job_id")
+    indices = body.get("scene_indices", [])
+
+    if not job_id:
+        return jsonify({"error": "Missing job_id"}), 400
+
+    scenes_path = WEB_RUN_DIR / job_id / "scenes.json"
+    if not scenes_path.exists():
+        return jsonify({"error": "Job not found"}), 404
+
+    with open(scenes_path, "r", encoding="utf-8") as f:
+        all_scenes = json.load(f)
+
+    # Filter scenes
+    target_tasks = [] # (index, scene)
+    for idx in indices:
+        if 0 <= idx < len(all_scenes):
+            target_tasks.append((idx, all_scenes[idx]))
+    
+    if not target_tasks:
+        return jsonify({"error": "No valid scenes selected"}), 400
+
+    regen_job_id = f"regen_image_{int(time.time())}"
+    _progress_queues[regen_job_id] = queue.Queue()
+
+    def _run():
+        try:
+            _send_progress(regen_job_id, "start", 0, f"Regenerating images for {len(target_tasks)} scenes...")
+            
+            run_dir = WEB_RUN_DIR / job_id
+            images_dir = run_dir / "images"
+            images_dir.mkdir(parents=True, exist_ok=True)
+            
+            from ..consistency.store import ConsistencyStore
+            store = ConsistencyStore()
+            
+            # Check for Image Generator
+            wangp_path = os.getenv("WANGP_PATH", r"D:\GeneAI\Wan2GP")
+            wgp_exists = (Path(wangp_path) / "wgp.py").exists()
+            if not wgp_exists:
+                 # Try import anyway?
+                 pass
+
+            from ..image.generator import ImageGenerator
+            generator = ImageGenerator()
+
+            for i, (real_idx, scene) in enumerate(target_tasks):
+                out_file = images_dir / f"scene_{real_idx:03d}.png"
+                _send_progress(regen_job_id, "generating", int((i / len(target_tasks)) * 100), f"Scene {real_idx}...")
+                generator.generate_for_scene(scene, out_file, store=store)
+            
+            _send_progress(regen_job_id, "complete", 100, f"Regenerated {len(target_tasks)} images")
+
+        except Exception as e:
+            logger.error("Image regen failed: %s", e, exc_info=True)
+            _progress_queues[regen_job_id].put({"step": "error", "percent": -1, "detail": str(e)})
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    return jsonify({"job_id": regen_job_id, "status": "started"})
 
 
 # ── Run Server ────────────────────────────────────────────────

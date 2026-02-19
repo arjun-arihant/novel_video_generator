@@ -4,229 +4,223 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Novel Video Generator</title>
-  <meta name="description"
-    content="Convert novel chapters into narrated videos with AI-powered scene extraction, character voices, and image generation.">
-  <link rel="stylesheet" href="/static/style.css">
-  <link rel="icon"
-    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+  <title>Novel Studio | Aurora</title>
+  <!-- Fonts -->
+  <link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <!-- Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="static/style.css">
 </head>
 
 <body>
   <div class="app-container">
-
-    <!-- ═══ Navbar ═══ -->
-    <nav class="navbar">
-      <div class="navbar-brand">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-          stroke-linejoin="round">
-          <polygon points="23 7 16 12 23 17 23 7"></polygon>
-          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-        </svg>
-        Novel Video Generator
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="brand">
+        <div class="brand-logo"></div>
+        <div class="brand-text">Novel Studio</div>
       </div>
-      <div class="navbar-status">
-        <span class="text-muted text-mono" id="status-text" style="font-size:var(--text-xs)">Ready</span>
-        <div class="status-dot" id="status-dot"></div>
+
+      <div class="nav-steps">
+        <div class="nav-step active" data-step="1" onclick="switchStep(1)">
+          <i data-lucide="library" class="nav-icon"></i>
+          <span>The Library</span>
+        </div>
+        <div class="nav-step" data-step="2" onclick="switchStep(2)">
+          <i data-lucide="eye" class="nav-icon"></i>
+          <span>The Vision</span>
+        </div>
+        <div class="nav-step" data-step="3" onclick="switchStep(3)">
+          <i data-lucide="mic" class="nav-icon"></i>
+          <span>The Voice</span>
+        </div>
+        <div class="nav-step" data-step="4" onclick="switchStep(4)">
+          <i data-lucide="hammer" class="nav-icon"></i>
+          <span>The Forge</span>
+        </div>
+        <div class="nav-step" data-step="5" onclick="switchStep(5)">
+          <i data-lucide="film" class="nav-icon"></i>
+          <span>The Cinema</span>
+        </div>
+      </div>
+
+      <div style="margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
+        <div class="status-badge pending" id="sys-status">
+          <span class="status-dot"></span> System Ready
+        </div>
       </div>
     </nav>
 
-    <!-- ═══ Main Content ═══ -->
-    <main class="main-content">
+    <!-- Main Workspace -->
+    <main class="workspace">
 
-      <!-- Tab Bar -->
-      <div class="tab-bar">
-        <button class="tab-btn active" data-tab="pipeline" id="tab-btn-pipeline">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-          </svg>
-          Pipeline
-        </button>
-        <button class="tab-btn" data-tab="characters" id="tab-btn-characters">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-          </svg>
-          Characters
-        </button>
-        <button class="tab-btn" data-tab="scenes" id="tab-btn-scenes">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-            <line x1="8" y1="21" x2="16" y2="21" />
-            <line x1="12" y1="17" x2="12" y2="21" />
-          </svg>
-          Scenes
-        </button>
-        <button class="tab-btn" data-tab="locations" id="tab-btn-locations">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-            <circle cx="12" cy="10" r="3" />
-          </svg>
-          Locations
-        </button>
-      </div>
-
-      <!-- ═══ Pipeline Tab ═══ -->
-      <div class="tab-panel active" id="panel-pipeline">
-
-        <!-- Upload Section -->
-        <div class="card mb-md">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Select Chapter</div>
-              <div class="card-subtitle">Upload a chapter JSON or select from available chapters</div>
-            </div>
-            <label class="btn btn-secondary btn-sm" for="file-input">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                style="width:14px;height:14px">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-              Upload
-              <input type="file" id="file-input" accept=".json" style="display:none">
-            </label>
+      <!-- Step 1: The Library -->
+      <div id="step-1" class="step-container active">
+        <div class="aurora-card">
+          <div class="step-header">
+            <h2 class="step-title">The Library</h2>
+            <p class="step-desc">Manage your novels. Upload EPUBs or select an existing story to ignite.</p>
           </div>
-          <div class="chapter-grid" id="chapter-grid">
-            <div class="empty-state">
-              <div class="spinner" style="margin:0 auto var(--space-md)"></div>
-              <p class="text-muted">Loading chapters...</p>
-            </div>
-          </div>
-        </div>
 
-        <!-- Pipeline Control -->
-        <div class="card mb-md">
-          <div class="card-header">
-            <div class="card-title">Pipeline</div>
-            <div style="display:flex;gap:var(--space-sm)">
-              <button class="btn btn-primary" id="btn-extract" disabled>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  style="width:14px;height:14px">
-                  <polygon points="5 3 19 12 5 21 5 3" />
-                </svg>
-                Extract Scenes
+          <!-- Tabs -->
+          <div class="tabs-header">
+            <button class="tab-btn active" id="btn-tab-lib" onclick="switchLibraryTab('lib')">My Novels</button>
+            <button class="tab-btn" id="btn-tab-raw" onclick="switchLibraryTab('raw')">Quick Paste</button>
+          </div>
+
+          <!-- Library Tab -->
+          <div id="tab-library" style="display: block;">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
+              <input type="file" id="epub-upload" accept=".epub" style="display: none;"
+                onchange="handleEpubUpload(this)">
+              <button class="btn-primary" onclick="document.getElementById('epub-upload').click()">
+                <i data-lucide="upload"></i> Upload EPUB
               </button>
-              <div style="display:flex;align-items:center;gap:0.5rem">
-                <input type="checkbox" id="chk-force-extract"
-                  style="width:16px;height:16px;accent-color:var(--primary)">
-                <label for="chk-force-extract"
-                  style="font-size:var(--text-xs);color:var(--text-muted);cursor:pointer">Force Re-extract</label>
+            </div>
+
+            <div id="novel-grid" class="novel-grid">
+              <!-- Novels injected here -->
+              <p style="text-align: center; color: var(--text-muted); grid-column: 1/-1;">Loading library...</p>
+            </div>
+
+            <div id="chapter-list-container" <p
+              style="text-align: center; color: var(--text-muted); grid-column: 1/-1;">Loading library...</p>
+            </div>
+
+            <div id="chapter-list-container"
+              style="display: none; margin-top: 2rem; border-top: 1px solid var(--border-glass); padding-top: 2rem;">
+              <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <button class="btn-secondary" onclick="closeChapterList()">
+                  <i data-lucide="arrow-left"></i> Back
+                </button>
+                <h3 id="selected-novel-title" style="margin: 0;">Novel Title</h3>
               </div>
-              <button class="btn btn-success" id="btn-pipeline" disabled>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  style="width:14px;height:14px">
-                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                </svg>
-                Full Pipeline
+              <div id="chapter-list" class="chapter-list"
+                style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
+                <!-- Chapters injected here -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Raw Input Tab -->
+          <div id="tab-raw" style="display: none;">
+            <textarea id="raw-text-input" rows="15" placeholder="Paste your story text here..."></textarea>
+            <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+              <button class="btn-primary" onclick="startExtraction()">
+                <i data-lucide="zap"></i> Ignite Engine
               </button>
             </div>
           </div>
 
-          <!-- Pipeline Step Indicators -->
-          <div class="pipeline-steps" id="pipeline-steps">
-            <div class="pipeline-step" id="step-extract">
-              <div class="step-icon">1</div>
-              <div class="step-label">Extract</div>
-              <div class="step-detail">Scenes + Characters</div>
+        </div>
+      </div>
+
+      <!-- Step 2: The Vision -->
+      <div id="step-2" class="step-container">
+        <div class="aurora-card">
+          <div class="step-header" style="display: flex; justify-content: space-between; align-items: start;">
+            <div>
+              <h2 class="step-title">The Vision</h2>
+              <p class="step-desc">Review and refine the extracted scenes. You are the director.</p>
             </div>
-            <div class="pipeline-step" id="step-voices">
-              <div class="step-icon">2</div>
-              <div class="step-label">Voices</div>
-              <div class="step-detail">LLM Assignment</div>
-            </div>
-            <div class="pipeline-step" id="step-images">
-              <div class="step-icon">3</div>
-              <div class="step-label">Images</div>
-              <div class="step-detail">Seed-pinned</div>
-            </div>
-            <div class="pipeline-step" id="step-audio">
-              <div class="step-icon">4</div>
-              <div class="step-label">Audio</div>
-              <div class="step-detail">Kokoro TTS</div>
-            </div>
-            <div class="pipeline-step" id="step-video">
-              <div class="step-icon">5</div>
-              <div class="step-label">Video</div>
-              <div class="step-detail">FFmpeg compose</div>
+            <div style="display: flex; gap: 1rem;">
+              <button class="btn-secondary" onclick="generateAllImages()">
+                <i data-lucide="image"></i> Generate All Images
+              </button>
+              <button class="btn-primary" onclick="switchStep(3)">
+                Next: Casting <i data-lucide="arrow-right"></i>
+              </button>
             </div>
           </div>
 
-          <!-- Progress -->
-          <div class="progress-container hidden" id="progress-container">
-            <div class="progress-bar-outer">
-              <div class="progress-bar-inner" id="progress-bar" style="width:0%"></div>
+          <div id="scenes-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <!-- Scenes injected here -->
+            <div style="text-align: center; padding: 4rem; color: var(--text-muted);">
+              <i data-lucide="loader-2" style="animation: spin 1s linear infinite; width: 32px; height: 32px;"></i>
+              <p style="margin-top: 1rem;">Waiting for extraction...</p>
             </div>
-            <div class="progress-label">
-              <span class="step" id="progress-step">Starting...</span>
-              <span class="pct" id="progress-pct">0%</span>
-            </div>
-          </div>
-
-          <!-- Log Output -->
-          <div class="scene-text hidden" id="pipeline-log"
-            style="max-height:150px;margin-top:var(--space-md);font-family:var(--font-mono);font-size:var(--text-xs)">
           </div>
         </div>
       </div>
 
-      <!-- ═══ Characters Tab ═══ -->
-      <div class="tab-panel" id="panel-characters">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Character Database</div>
-              <div class="card-subtitle">Rich character profiles with voice assignments</div>
-            </div>
-            <button class="btn btn-secondary btn-sm" id="btn-refresh-chars">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                style="width:14px;height:14px">
-                <polyline points="23 4 23 10 17 10" />
-                <polyline points="1 20 1 14 7 14" />
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-              </svg>
-              Refresh
+      <!-- Step 3: The Voice -->
+      <div id="step-3" class="step-container">
+        <div class="aurora-card">
+          <div class="step-header">
+            <h2 class="step-title">The Voice</h2>
+            <p class="step-desc">Cast your characters. Assign voices to bring them to life.</p>
+          </div>
+
+          <div id="characters-container"
+            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem;">
+            <!-- Characters injected here -->
+          </div>
+
+          <div style="margin-top: 2rem; text-align: right;">
+            <button class="btn-primary" onclick="switchStep(4)">
+              Next: Production <i data-lucide="arrow-right"></i>
             </button>
           </div>
-          <div class="character-grid" id="character-grid"></div>
         </div>
       </div>
 
-      <!-- ═══ Scenes Tab ═══ -->
-      <div class="tab-panel" id="panel-scenes">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Scene Viewer</div>
-              <div class="card-subtitle">Review extracted scenes with enriched visual descriptions</div>
-            </div>
+      <!-- Step 4: The Forge -->
+      <div id="step-4" class="step-container">
+        <div class="aurora-card">
+          <div class="step-header">
+            <h2 class="step-title">The Forge</h2>
+            <p class="step-desc">The production pipeline is running. Generating assets...</p>
           </div>
-          <div class="scene-list" id="scene-list"></div>
+
+          <div id="terminal-output" style="
+                        background: #000; 
+                        color: #0f0; 
+                        font-family: 'JetBrains Mono', monospace; 
+                        padding: 1.5rem; 
+                        border-radius: 0.5rem; 
+                        height: 400px; 
+                        overflow-y: auto;
+                        margin-bottom: 2rem;
+                        border: 1px solid #333;
+                        font-size: 0.9rem;
+                        line-height: 1.5;
+                    ">
+            > System Initialized...<br>
+            > Waiting for job...
+          </div>
+
+          <button class="btn-primary" onclick="runFullPipeline()" id="btn-start-production">
+            <i data-lucide="play"></i> Start Production
+          </button>
         </div>
       </div>
 
-      <!-- ═══ Locations Tab ═══ -->
-      <div class="tab-panel" id="panel-locations">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Location Database</div>
-              <div class="card-subtitle">Enriched locations with architecture, mood, and color palettes</div>
-            </div>
+      <!-- Step 5: The Cinema -->
+      <div id="step-5" class="step-container">
+        <div class="aurora-card">
+          <div class="step-header">
+            <h2 class="step-title">The Cinema</h2>
+            <p class="step-desc">Your masterpiece is ready.</p>
           </div>
-          <div class="location-grid" id="location-grid"></div>
+
+          <div id="final-video-container"
+            style="background: black; aspect-ratio: 16/9; border-radius: 1rem; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--border-subtle);">
+            <p style="color: #666;">Video Player Placeholder</p>
+          </div>
         </div>
       </div>
 
     </main>
   </div>
 
-  <!-- Toast Container -->
-  <div class="toast-container" id="toast-container"></div>
-
-  <script src="/static/app.js"></script>
+  <script src="static/app.js"></script>
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
 </body>
 
 </html>

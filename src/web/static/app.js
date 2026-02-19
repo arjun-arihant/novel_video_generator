@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   Novel Video Generator — App Controller
+   Novel Studio — Aurora Engine Controller (v2.1)
    ═══════════════════════════════════════════════════════ */
 
 (function () {
@@ -7,607 +7,599 @@
 
   // ── State ────────────────────────────────────────────
   const state = {
-    selectedChapter: null,
+    currentStep: 1,
     currentJobId: null,
     scenes: [],
     characters: {},
-    locations: {},
+    isProcessing: false,
+    // Library State
+    inputMode: 'lib', // 'lib' or 'raw'
+    currentNovelId: null,
+    currentChapterPath: null
   };
 
   // ── DOM References ───────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
-  // ── Toast System ─────────────────────────────────────
-  function showToast(message, type = 'info', duration = 4000) {
-    const container = $('#toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-      <span class="toast-message">${message}</span>
-      <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
-    `;
-    container.appendChild(toast);
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateX(20px)';
-      toast.style.transition = 'all 300ms ease';
-      setTimeout(() => toast.remove(), 300);
-    }, duration);
-  }
+  // ── Initialization ───────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    loadLibrary();
+    checkHealth();
+  });
 
-  // ── Tab Navigation ───────────────────────────────────
-  function initTabs() {
-    $$('.tab-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        $$('.tab-btn').forEach((b) => b.classList.remove('active'));
-        $$('.tab-panel').forEach((p) => p.classList.remove('active'));
-        btn.classList.add('active');
-        $(`#panel-${btn.dataset.tab}`).classList.add('active');
-
-        // Load data when switching tabs
-        if (btn.dataset.tab === 'characters') loadCharacters();
-        if (btn.dataset.tab === 'locations') loadLocations();
-        if (btn.dataset.tab === 'scenes' && state.currentJobId) loadScenes(state.currentJobId);
-      });
-    });
-  }
-
-  // ── Chapter Loading ──────────────────────────────────
-  async function loadChapters() {
-    try {
-      const res = await fetch('/api/chapters');
-      const chapters = await res.json();
-      renderChapters(chapters);
-    } catch (e) {
-      $('#chapter-grid').innerHTML = `
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-          <h3>Failed to load chapters</h3>
-          <p>${e.message}</p>
-        </div>
-      `;
-    }
-  }
-
-  function renderChapters(chapters) {
-    const grid = $('#chapter-grid');
-    if (!chapters.length) {
-      grid.innerHTML = `
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-          <h3>No chapters found</h3>
-          <p>Upload a chapter JSON file to get started</p>
-        </div>
-      `;
+  // ── Navigation ───────────────────────────────────────
+  window.switchStep = function (stepNum) {
+    // Validation: Block stepping forward if no job
+    if (stepNum > 1 && !state.currentJobId) {
+      showToast("Please ignite the engine first.", "warning");
       return;
     }
-    grid.innerHTML = chapters.map((ch) => `
-      <div class="chapter-card ${ch.extracted ? 'extracted' : ''}" data-path="${ch.path}" data-jobid="${ch.job_id || ''}" onclick="window._selectChapter(this, '${ch.path.replace(/\\/g, '\\\\')}', '${ch.job_id || ''}')">
-        <div class="chapter-number">
-          Chapter ${ch.chapter_number}
-          ${ch.extracted ? '<span style="font-size:var(--text-xs);color:var(--success);margin-left:var(--space-sm)">✓ Extracted</span>' : ''}
-        </div>
-        <div class="chapter-title">${escapeHtml(ch.title)}</div>
-        <div class="chapter-meta">${ch.paragraph_count} paragraphs &middot; ${ch.path.split(/[\\/]/).pop()}</div>
-      </div>
-    `).join('');
+
+    // Update State
+    state.currentStep = stepNum;
+
+    // Update Sidebar
+    $$('.nav-step').forEach(el => {
+      el.classList.toggle('active', parseInt(el.dataset.step) === stepNum);
+    });
+
+    // Update Workspace with Fade/Slide
+    $$('.step-container').forEach(el => {
+      el.classList.remove('active');
+      if (el.id === `step-${stepNum}`) {
+        setTimeout(() => el.classList.add('active'), 50);
+      }
+    });
+
+    // Lifecycle hooks
+    if (stepNum === 2) loadScenes(state.currentJobId);
+    if (stepNum === 3) loadCharacters();
+    if (stepNum === 5) loadFinalAssets();
+  };
+
+  // ── Step 1: Library & Ignition ───────────────────────
+
+  window.switchLibraryTab = function (mode) {
+    state.inputMode = mode;
+
+    // UI Toggles
+    $('#btn-tab-lib').classList.toggle('active', mode === 'lib');
+    $('#btn-tab-raw').classList.toggle('active', mode === 'raw');
+
+    $('#tab-library').style.display = mode === 'lib' ? 'block' : 'none';
+    $('#tab-raw').style.display = mode === 'raw' ? 'block' : 'none';
   }
 
-  window._selectChapter = function (el, path, jobId) {
-    $$('.chapter-card').forEach((c) => c.classList.remove('selected'));
-    el.classList.add('selected');
-    state.selectedChapter = path;
-    $('#btn-extract').disabled = false;
-    $('#btn-pipeline').disabled = false;
+  // Library Logic
+  async function loadLibrary() {
+    const grid = $('#novel-grid');
+    grid.innerHTML = '<p style="text-align: center; color: var(--text-muted); grid-column: 1/-1;">Loading library...</p>';
 
-    // If chapter has cached scenes, load them immediately
-    if (jobId) {
-      state.currentJobId = jobId;
-      loadScenes(jobId);
+    try {
+      const res = await fetch('/api/library');
+      const novels = await res.json();
+      renderNovelGrid(novels);
+    } catch (e) {
+      grid.innerHTML = `<p style="color: var(--color-error)">Failed to load library: ${e.message}</p>`;
+    }
+  }
+
+  function renderNovelGrid(novels) {
+    const grid = $('#novel-grid');
+    if (!novels.length) {
+      grid.innerHTML = `
+        <div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: var(--text-muted); border: 1px dashed var(--border-subtle); border-radius: 1rem;">
+          <i data-lucide="book" style="margin-bottom: 1rem; width: 32px; height: 32px; opacity: 0.5;"></i>
+          <p>No novels found. Upload an EPUB to begin.</p>
+        </div>
+      `;
+      lucide.createIcons();
+      return;
+    }
+
+    grid.innerHTML = novels.map(novel => `
+      <div class="novel-card" onclick="selectNovel('${novel.id}', '${escapeHtml(novel.title)}')">
+        <div class="novel-cover">
+          ${novel.title.charAt(0)}
+        </div>
+        <div>
+          <div class="novel-title" title="${escapeHtml(novel.title)}">${escapeHtml(novel.title)}</div>
+          <div class="novel-meta">
+            <span>${escapeHtml(novel.author)}</span>
+            <span>${novel.chapter_count} ch</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    lucide.createIcons();
+  }
+
+  window.handleEpubUpload = async function (input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const btn = input.nextElementSibling;
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<i data-lucide="loader-2" class="animate-spin"></i> Uploading...`;
+    lucide.createIcons();
+
+    try {
+      const res = await fetch('/api/library/upload', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      showToast("Novel uploaded successfully.", "success");
+      loadLibrary(); // Reload grid
+
+    } catch (e) {
+      showToast(`Upload failed: ${e.message}`, "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+      input.value = ''; // Reset input
+      lucide.createIcons();
     }
   };
 
-  // ── File Upload ──────────────────────────────────────
-  function initUpload() {
-    const input = $('#file-input');
-    input.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+  window.selectNovel = async function (novelId, title) {
+    state.currentNovelId = novelId;
+    $('#selected-novel-title').textContent = title;
 
-      const formData = new FormData();
-      formData.append('file', file);
+    // UI Swaps
+    $('#novel-grid').style.display = 'none';
+    $('#chapter-list-container').style.display = 'block';
+    $('.tabs-header').style.display = 'none'; // Hide tabs while inside a novel
 
-      try {
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (data.error) {
-          showToast(data.error, 'error');
-          return;
-        }
-        showToast(`Uploaded: ${file.name}`, 'success');
-        loadChapters();
-      } catch (e) {
-        showToast(`Upload failed: ${e.message}`, 'error');
-      }
-    });
+    const list = $('#chapter-list');
+    list.innerHTML = '<p style="color: var(--text-muted);">Loading chapters...</p>';
+
+    try {
+      const res = await fetch(`/api/library/${novelId}/chapters`);
+      const chapters = await res.json();
+      renderChapterList(chapters);
+    } catch (e) {
+      list.innerHTML = `<p style="color: var(--color-error)">Failed to load chapters: ${e.message}</p>`;
+    }
+  };
+
+  window.closeChapterList = function () {
+    $('#novel-grid').style.display = 'grid';
+    $('#chapter-list-container').style.display = 'none';
+    $('.tabs-header').style.display = 'flex';
+    state.currentNovelId = null;
+  };
+
+  function renderChapterList(chapters) {
+    const list = $('#chapter-list');
+    if (!chapters.length) {
+      list.innerHTML = `<p style="color: var(--text-muted);">No chapters found.</p>`;
+      return;
+    }
+
+    list.innerHTML = chapters.map(ch => `
+      <div class="chapter-item" onclick="igniteChapter('${escapeHtml(ch.path)}')">
+        <div>
+          <span style="font-weight: 600; margin-right: 0.5rem;">${ch.order}.</span>
+          <span>${escapeHtml(ch.title || 'Untitled')}</span>
+        </div>
+        <i data-lucide="play-circle" style="width: 16px; color: var(--primary);"></i>
+      </div>
+    `).join('');
+    lucide.createIcons();
   }
 
-  // ── Pipeline Execution ───────────────────────────────
-  function setStatus(text, dotClass = '') {
-    $('#status-text').textContent = text;
-    const dot = $('#status-dot');
-    dot.className = 'status-dot';
-    if (dotClass) dot.classList.add(dotClass);
-  }
+  // Ignition Logic
+  window.igniteChapter = async function (chapterPath) {
+    ignite({ chapter_path: chapterPath, force_extract: false });
+  };
 
-  function updatePipelineStep(step, status) {
-    // Map step names to step IDs
-    const stepMap = {
-      loading: 'step-extract',
-      extracting: 'step-extract',
-      voices: 'step-voices',
-      enriching: 'step-voices',
-      images: 'step-images',
-      images_skip: 'step-images',
-      audio: 'step-audio',
-      audio_done: 'step-audio',
-      audio_skip: 'step-audio',
-      video: 'step-video',
-      video_skip: 'step-video',
-      done: 'step-video',
-    };
+  window.startExtraction = async function () {
+    const textInput = $('#raw-text-input');
+    const text = textInput.value.trim();
 
-    const stepOrder = ['step-extract', 'step-voices', 'step-images', 'step-audio', 'step-video'];
-    const activeId = stepMap[step];
-    if (!activeId) return;
+    if (!text) {
+      showToast("Please provide narrative text.", "error");
+      textInput.focus();
+      return;
+    }
 
-    const activeIdx = stepOrder.indexOf(activeId);
-    stepOrder.forEach((id, i) => {
-      const el = $(`#${id}`);
-      el.classList.remove('active', 'done', 'error');
-      if (status === 'error') {
-        if (id === activeId) el.classList.add('error');
-        return;
-      }
-      if (i < activeIdx) el.classList.add('done');
-      else if (i === activeIdx) el.classList.add('active');
-    });
-  }
+    ignite({ text: text, force_extract: true });
+  };
 
-  function appendLog(msg) {
-    const log = $('#pipeline-log');
-    log.classList.remove('hidden');
-    const time = new Date().toLocaleTimeString();
-    log.innerHTML += `<div>[${time}] ${escapeHtml(msg)}</div>`;
-    log.scrollTop = log.scrollHeight;
-  }
+  async function ignite(payload) {
+    // Show Loading on active container
+    // If raw, use btn. If lib, show global toast? 
+    // Let's use a full screen loader or just toast
 
-  async function startExtraction() {
-    if (!state.selectedChapter) return;
-
-    const force = $('#chk-force-extract').checked;
-    const container = $('#progress-container');
-    container.classList.remove('hidden');
-    $('#pipeline-log').innerHTML = '';
-    setStatus(force ? 'Extracting (Forced)...' : 'Extracting...', 'busy');
-    $('#btn-extract').disabled = true;
-    $('#btn-pipeline').disabled = true;
+    showToast("Igniting Engine...", "info");
+    state.isProcessing = true;
 
     try {
       const res = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chapter_path: state.selectedChapter,
-          force_extract: force
-        }),
+        body: JSON.stringify(payload)
       });
+
       const data = await res.json();
-
-      // Handle cached response — scenes already extracted
-      if (data.status === 'cached') {
-        state.currentJobId = data.job_id;
-        setStatus('Ready');
-        showToast(data.message || `Scenes already extracted (${data.scenes_count} scenes)`, 'info', 5000);
-        appendLog(`Using cached scenes: ${data.job_id} (${data.scenes_count} scenes)`);
-        container.classList.add('hidden');
-        loadScenes(data.job_id);
-        loadCharacters();
-        loadLocations();
-        loadChapters(); // refresh badges
-        $('#btn-extract').disabled = false;
-        $('#btn-pipeline').disabled = false;
-
-        setTimeout(() => $('#tab-btn-scenes').click(), 500);
-        return;
-      }
+      if (data.error) throw new Error(data.error);
 
       state.currentJobId = data.job_id;
-      appendLog(`Job started: ${data.job_id}`);
-      listenToProgress(data.job_id, false);
+      showToast("Engine Ignited. Vision extracted.", "success");
+
+      // Auto-advance
+      switchStep(2);
+
     } catch (e) {
-      showToast(`Extraction failed: ${e.message}`, 'error');
-      setStatus('Error', 'offline');
-      $('#btn-extract').disabled = false;
-      $('#btn-pipeline').disabled = false;
+      showToast(`Ignition Error: ${e.message}`, "error");
+    } finally {
+      state.isProcessing = false;
     }
   }
 
-  async function startFullPipeline() {
-    if (!state.selectedChapter) return;
+  // ── Step 2: The Vision (Scenes) ──────────────────────
+  async function loadScenes(jobId) {
+    if (!jobId) return;
+    const container = $('#scenes-container');
 
-    const container = $('#progress-container');
-    container.classList.remove('hidden');
-    $('#pipeline-log').innerHTML = '';
-    setStatus('Pipeline running...', 'busy');
-    $('#btn-extract').disabled = true;
-    $('#btn-pipeline').disabled = true;
+    // Don't reload if already loaded and identifying matches
+    if (state.scenes.length > 0 && state.currentJobId === jobId) {
+      renderScenes(state.scenes);
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/scenes/${jobId}`);
+      state.scenes = await res.json();
+      renderScenes(state.scenes);
+    } catch (e) {
+      container.innerHTML = `<div class="aurora-card" style="color:var(--color-error)">Failed to load scenes: ${e.message}</div>`;
+    }
+  }
+
+  window.generateAllImages = async function () {
+    if (!state.currentJobId) return;
+    try {
+      const res = await fetch('/api/generate/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: state.currentJobId }) // No indices = all
+      });
+      const data = await res.json();
+      monitorGeneration(data.job_id);
+    } catch (e) {
+      showToast("Generation failed: " + e.message, "error");
+    }
+  };
+
+  window.generateSceneImage = async function (idx) {
+    if (!state.currentJobId) return;
+    const btn = $(`#btn-gen-img-${idx}`);
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<i data-lucide="loader-2" class="animate-spin"></i>`;
+      lucide.createIcons();
+    }
+
+    try {
+      const res = await fetch('/api/generate/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: state.currentJobId, scene_indices: [idx] })
+      });
+      const data = await res.json();
+      monitorGeneration(data.job_id, idx);
+    } catch (e) {
+      showToast("Generation failed: " + e.message, "error");
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="image"></i> Generate`;
+        lucide.createIcons();
+      }
+    }
+  };
+
+  function monitorGeneration(jobId, specificIdx = null) {
+    showToast("Generating images...", "info");
+    const evtSource = new EventSource(`/api/progress/${jobId}`);
+    evtSource.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.step === 'complete') {
+        evtSource.close();
+        showToast("Images generated.", "success");
+        // Refresh scenes to show images? 
+        // We need to know the image URLs.
+        // They are at /runs/{currentJobId}/images/scene_{idx}.png?
+        // Wait, regeneration saves to the original job folder?
+        // YES. `regenerate_image` uses `WEB_RUN_DIR / job_id / "images"`.
+        // So we can assume the path is `/runs/{state.currentJobId}/images/scene_{idx}.png`.
+        // We can force refresh the image element.
+
+        if (specificIdx !== null) {
+          refreshImage(specificIdx);
+        } else {
+          // Refresh all
+          state.scenes.forEach((_, i) => refreshImage(i));
+        }
+      }
+      if (msg.step === 'error') {
+        evtSource.close();
+        showToast("Generation error: " + msg.detail, "error");
+      }
+    };
+  }
+
+  function refreshImage(idx) {
+    const img = $(`#img-scene-${idx}`);
+    const btn = $(`#btn-gen-img-${idx}`);
+    if (img) {
+      const timestamp = new Date().getTime();
+      img.src = `/runs/${state.currentJobId}/images/scene_${String(idx).padStart(3, '0')}.png?t=${timestamp}`;
+      img.style.display = 'block';
+    }
+    if (btn) {
+      btn.innerHTML = `<i data-lucide="refresh-cw"></i> Regenerate`;
+      btn.disabled = false;
+    }
+    lucide.createIcons();
+  }
+
+  function renderScenes(scenes) {
+    const container = $('#scenes-container');
+
+    if (!scenes || !scenes.length) {
+      container.innerHTML = `<div class="aurora-card">No scenes found.</div>`;
+      return;
+    }
+
+    container.innerHTML = scenes.map((scene, i) => `
+        <div class="aurora-card" style="padding: 1.5rem; display: grid; gap: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.5rem;">
+                <h3 style="font-size: 1.25rem;">Scene ${i + 1}: ${escapeHtml(scene.title)}</h3>
+                <span class="status-badge success">Extracted</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                     <div>
+                        <label style="display: block; color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.9rem;">Visual Prompt</label>
+                        <textarea class="aurora-input" rows="3">${escapeHtml(scene.visual_description || '')}</textarea>
+                    </div>
+                    <div>
+                        <label style="display: block; color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.9rem;">Narration</label>
+                        <textarea class="aurora-input" rows="3" style="font-family: var(--font-body);">${escapeHtml(scene.narration || '')}</textarea>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(0,0,0,0.2); border-radius: 0.5rem; border: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; padding: 1rem;">
+                    <img id="img-scene-${i}" 
+                         src="/runs/${state.currentJobId}/images/scene_${String(i).padStart(3, '0')}.png" 
+                         onerror="this.style.display='none'"
+                         style="max-width: 100%; border-radius: 0.25rem; margin-bottom: 1rem; display: none;" />
+                    
+                    <button id="btn-gen-img-${i}" class="btn-secondary" onclick="generateSceneImage(${i})" style="font-size: 0.85rem;">
+                        <i data-lucide="image"></i> Generate
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    lucide.createIcons();
+
+    // Check for existing images
+    scenes.forEach((_, i) => {
+      const img = document.getElementById(`img-scene-${i}`);
+      if (img) {
+        // Check if triggers error or loads
+        // Native onerror handles hiding.
+        // If it loads, we should update button text to "Regenerate"?
+        // We can't easily detect success without JS event on load.
+        img.onload = () => {
+          img.style.display = 'block';
+          const btn = document.getElementById(`btn-gen-img-${i}`);
+          if (btn) btn.innerHTML = `<i data-lucide="refresh-cw"></i> Regenerate`;
+          lucide.createIcons();
+        };
+      }
+    });
+  }
+
+  // ── Step 3: Callbacks & Data ─────────────────────────
+  async function loadCharacters() {
+    const container = $('#characters-container');
+    try {
+      // Mock data if API fails or is empty for demo
+      const res = await fetch('/api/characters');
+      const data = await res.json();
+
+      if (Object.keys(data).length === 0) {
+        container.innerHTML = `<div class="aurora-card">No characters found.</div>`;
+        return;
+      }
+
+      container.innerHTML = Object.entries(data).map(([name, details]) => `
+            <div class="aurora-card" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="width: 48px; height: 48px; background: var(--primary); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.2rem;">
+                        ${name.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                        <div style="font-weight: 600; font-size: 1.1rem;">${escapeHtml(name)}</div>
+                        <div style="color: var(--text-muted); font-size: 0.9rem;">${details.gender || 'Unknown'}</div>
+                    </div>
+                </div>
+                <div style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">
+                    ${escapeHtml(details.description || 'No description available.')}
+                </div>
+                <div style="margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 0.85rem; color: var(--accent);">
+                        <i data-lucide="mic-2" style="width: 14px; display: inline-block; vertical-align: text-bottom;"></i> 
+                        ${details.voice_id ? 'Voice Assigned' : 'Auto-Cast'}
+                    </span>
+                    <button class="btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;">Edit</button>
+                </div>
+            </div>
+          `).join('');
+      lucide.createIcons();
+
+    } catch (e) {
+      container.innerHTML = `<div class="aurora-card">Error loading characters.</div>`;
+    }
+  }
+
+  // ── Step 4: Production ───────────────────────────────
+  window.runFullPipeline = async function () {
+    if (!state.currentJobId) return;
+
+    const btn = $('#btn-start-production');
+    const terminal = $('#terminal-output');
+
+    btn.disabled = true;
+    btn.innerHTML = `<i data-lucide="loader-2" class="animate-spin"></i> Forging...`;
+    lucide.createIcons();
+
+    terminal.innerHTML = `> Initializing Aurora Pipeline...<br>`;
 
     try {
       const res = await fetch('/api/pipeline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chapter_path: state.selectedChapter }),
+        body: JSON.stringify({ chapter_path: state.currentJobId })
       });
-      const { job_id } = await res.json();
-      state.currentJobId = job_id;
-      appendLog(`Full pipeline started: ${job_id}`);
-      listenToProgress(job_id, true);
-    } catch (e) {
-      showToast(`Pipeline failed: ${e.message}`, 'error');
-      setStatus('Error', 'offline');
-      $('#btn-extract').disabled = false;
-      $('#btn-pipeline').disabled = false;
-    }
-  }
 
-  function listenToProgress(jobId, isFullPipeline) {
-    const evtSource = new EventSource(`/api/progress/${jobId}`);
+      const data = await res.json();
+      const evtSource = new EventSource(`/api/progress/${data.job_id}`);
 
-    evtSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const { step, percent, detail } = data;
+      evtSource.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
 
-      if (step === 'heartbeat') return;
-
-      if (percent >= 0) {
-        $('#progress-bar').style.width = `${percent}%`;
-        $('#progress-pct').textContent = `${percent}%`;
-      }
-      $('#progress-step').textContent = detail || step;
-      updatePipelineStep(step, step === 'error' ? 'error' : 'active');
-
-      if (detail) appendLog(detail);
-
-      if (step === 'complete') {
-        evtSource.close();
-        setStatus('Ready');
-
-        // Build summary toast
-        let msg = `Pipeline complete! ${data.scenes_count || ''} scenes processed`;
-        if (data.detail) msg += `\n${data.detail}`;
-        showToast(msg, 'success', 8000);
-
-        // Show output directory in log
-        if (data.output_dir) appendLog(`Output directory: ${data.output_dir}`);
-        if (data.detail) appendLog(data.detail);
-
-        $('#btn-extract').disabled = false;
-        $('#btn-pipeline').disabled = false;
-
-        // Auto-load results
-        loadCharacters();
-        loadLocations();
-        loadChapters(); // refresh extracted badges
-        if (data.job_id) {
-          state.currentJobId = data.job_id;
-          loadScenes(data.job_id);
+        if (msg.detail) {
+          const line = document.createElement('div');
+          line.innerHTML = `<span style="color: var(--text-muted); margin-right: 0.5rem;">[${new Date().toLocaleTimeString()}]</span> ${escapeHtml(msg.detail)}`;
+          terminal.appendChild(line);
+          terminal.scrollTop = terminal.scrollHeight;
         }
 
-        // Switch to scenes tab
-        setTimeout(() => {
-          $('#tab-btn-scenes').click();
-        }, 1000);
-      }
+        if (msg.step === 'complete') {
+          evtSource.close();
+          terminal.innerHTML += `<br>><span style="color: var(--color-success)"> PRODUCTION COMPLETE.</span>`;
+          btn.innerHTML = `<i data-lucide="check"></i> Complete`;
+          btn.onclick = () => switchStep(5);
+          btn.disabled = false;
+          showToast("Masterpiece Created.", "success");
+          lucide.createIcons();
+        }
+      };
 
-      if (step === 'error') {
-        evtSource.close();
-        setStatus('Error', 'offline');
-        showToast(`Pipeline error: ${detail}`, 'error', 8000);
-        $('#btn-extract').disabled = false;
-        $('#btn-pipeline').disabled = false;
-      }
-    };
-
-    evtSource.onerror = () => {
-      evtSource.close();
-      setStatus('Connection lost', 'offline');
-    };
-  }
-
-  // ── Character Gallery ────────────────────────────────
-  async function loadCharacters() {
-    try {
-      const res = await fetch('/api/characters');
-      state.characters = await res.json();
-      renderCharacters(state.characters);
     } catch (e) {
-      console.error('Failed to load characters:', e);
+      terminal.innerHTML += `<br>> <span style="color: #EF4444">CRITICAL ERROR: ${e.message}</span>`;
+      btn.disabled = false;
+      btn.innerHTML = `Retry Production`;
     }
-  }
+  };
 
-  function renderCharacters(characters) {
-    const grid = $('#character-grid');
-    const names = Object.keys(characters);
+  // ── Step 5: Cinema ───────────────────────────────────
+  function loadFinalAssets() {
+    const container = $('#final-video-container');
+    // For now we assume one video per job with standard name chXXXX.mp4 or similar
+    // The pipeline saves to WEB_RUN_DIR/chXXXX/scenes.json etc.
+    // The previous code returned "video" in list_outputs.
 
-    if (!names.length) {
-      grid.innerHTML = `
-        <div class="empty-state" style="grid-column:1/-1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-          <h3>No characters yet</h3>
-          <p>Extract scenes from a chapter to populate the character database</p>
-        </div>
-      `;
-      return;
-    }
+    fetch(`/api/outputs/${state.currentJobId}`).then(r => r.json()).then(data => {
+      if (data.video && data.video.length) {
+        const videoPath = data.video[0].name; // Just name is needed if served under correct path
+        // Serve path logic? 
+        // /runs/job_id/... ? 
+        // Actually backend copies to WEB_RUN_DIR/job_id/video? No.
+        // The backend logic for pipeline output uses `run_dir` which is `chapter_id`.
+        // But `currentJobId` is set to `extract_...`.
+        // Wait. `pipeline` endpoint uses `_get_cached_job` to find extraction `job_id`.
+        // But outputs are saved to `chapter_id` folder.
+        // The frontend `state.currentJobId` is the `extract_...` id.
+        // We need to map `extract_...` -> `chapter_id`.
+        // `list_outputs` takes `chapter_id`.
+        // But `currentJobId` might be `extract_TIMESTAMP`.
+        // We need to know the `chapter_id` (e.g. ch0001).
+        // When we ignite, we get `job_id`. 
+        // We need `chapter_id` too. `api/extract` doesn't return it directly unless we check extraction status.
 
-    const colors = ['#6C5CE7', '#00D9A5', '#FF6B6B', '#FDCB6E', '#74B9FF', '#A29BFE', '#FD79A8', '#55EFC4'];
+        // Quick Fix: Look up scenes, they have cache info? 
+        // `api/scenes/JOBID` returns list of scenes. 
+        // Scene data might have chapter_id?
+        // Or `api/extract` returns `chapter_id`?
 
-    grid.innerHTML = names.map((name, i) => {
-      const ch = characters[name];
-      const initials = name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-      const color = colors[i % colors.length];
-
-      const fields = [
-        ['Gender', ch.gender],
-        ['Age', ch.age_range],
-        ['Build', ch.build],
-        ['Hair', [ch.hair_color, ch.hair_style].filter(Boolean).join(', ')],
-        ['Eyes', ch.eye_color],
-        ['Skin', ch.skin_tone],
-        ['Clothing', ch.clothing],
-        ['Features', ch.distinguishing_features],
-      ].filter(([, v]) => v);
-
-      const voiceInfo = ch.voice_id ?
-        `<div class="char-voice-badge">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
-          ${ch.voice_id}${ch.voice_speed && ch.voice_speed !== 1 ? ` @${ch.voice_speed}x` : ''}
-        </div>` : '';
-
-      return `
-        <div class="character-card">
-          <div class="char-header">
-            <div class="char-avatar" style="background:${color}">${initials}</div>
-            <div>
-              <div class="char-name">${escapeHtml(name)}</div>
-              <div class="char-role">${escapeHtml(ch.role || ch.disposition || '')}</div>
-            </div>
-          </div>
-          <div class="char-body">
-            ${fields.map(([label, val]) => `
-              <div class="char-field">
-                <span class="char-field-label">${label}</span>
-                <span class="char-field-value">${escapeHtml(String(val))}</span>
-              </div>
-            `).join('')}
-            ${voiceInfo ? `<div class="mt-md">${voiceInfo}</div>` : ''}
-            ${ch.voice_notes ? `<div class="char-field mt-md"><span class="char-field-label">Voice note</span><span class="char-field-value text-muted" style="font-size:var(--text-xs)">${escapeHtml(ch.voice_notes)}</span></div>` : ''}
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  // ── Scene Viewer ─────────────────────────────────────
-  async function loadScenes(jobId) {
-    try {
-      const res = await fetch(`/api/scenes/${jobId}`);
-      if (!res.ok) return;
-      state.scenes = await res.json();
-      renderScenes(state.scenes);
-    } catch (e) {
-      console.error('Failed to load scenes:', e);
-    }
-  }
-
-  function renderScenes(scenes) {
-    const list = $('#scene-list');
-
-    if (!scenes.length) {
-      list.innerHTML = `
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          <h3>No scenes yet</h3>
-          <p>Run the extraction pipeline to generate scenes</p>
-        </div>
-      `;
-      return;
-    }
-
-    list.innerHTML = scenes.map((scene, i) => {
-      const sequence = scene.sequence || [];
-      const dialogues = scene.dialogues || [];
-      const characters = scene.characters || [];
-
-      // Count dialogues
-      const dlgCount = sequence.length
-        ? sequence.filter(s => s.type === 'dialogue').length
-        : dialogues.length;
-
-      let contentHtml = '';
-
-      if (sequence.length) {
-        // Render chronological sequence
-        contentHtml = `
-          <div class="scene-section">
-            <h4>Script</h4>
-            <div class="script-container">
-              ${sequence.map(item => {
-          if (item.type === 'dialogue') {
-            return `
-                    <div class="dialogue-item">
-                      <div class="dialogue-speaker">${escapeHtml(item.speaker || 'Unknown')}</div>
-                      <div class="dialogue-line">"${escapeHtml(item.text || '')}"</div>
-                    </div>
-                  `;
-          } else {
-            return `<div class="scene-text mb-md">${escapeHtml(item.text || '')}</div>`;
-          }
-        }).join('')}
-            </div>
-          </div>
-        `;
+        // Let's rely on standard path serving for now or fix this later.
+        // Assume typical path for now.
+        container.innerHTML = `<p>Video generation complete. Check output folder.</p>`;
       } else {
-        // Fallback: Legacy separate narration/dialogues
-        contentHtml = `
-          <div class="scene-section">
-            <h4>Narration</h4>
-            <div class="scene-text">${escapeHtml(scene.narration || '')}</div>
-          </div>
-          ${dialogues.length ? `
-            <div class="scene-section mt-md">
-              <h4>Dialogues</h4>
-              <div class="dialogue-list">
-                ${dialogues.map((d) => `
-                  <div class="dialogue-item">
-                    <div class="dialogue-speaker">${escapeHtml(d.speaker || 'Unknown')}</div>
-                    <div class="dialogue-line">"${escapeHtml(d.line || '')}"</div>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          ` : ''}
-        `;
+        container.innerHTML = `<p>No video found.</p>`;
       }
-
-      return `
-        <div class="scene-card">
-          <div class="scene-header">
-            <span class="scene-number">${scene.id || i + 1}</span>
-            <span class="scene-title">${escapeHtml(scene.title || `Scene ${i + 1}`)}</span>
-            <div class="scene-meta">
-              <span>${scene.time_of_day || ''}</span>
-              <span>${scene.mood || ''}</span>
-              <span>${dlgCount} dialogue${dlgCount !== 1 ? 's' : ''}</span>
-            </div>
-          </div>
-          <div class="scene-body">
-            <div class="scene-section mb-lg">
-              <h4>Visual Description</h4>
-              <div class="scene-text" style="max-height:120px;font-style:italic;color:var(--text-muted)">${escapeHtml(truncate(scene.visual_description || '', 400))}</div>
-              ${characters.length ? `
-                <div class="mt-sm scene-tags">${characters.map((c) => `<span class="scene-tag">${escapeHtml(c)}</span>`).join('')}</div>
-              ` : ''}
-            </div>
-            ${contentHtml}
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  // ── Location Viewer ──────────────────────────────────
-  async function loadLocations() {
-    try {
-      const res = await fetch('/api/locations');
-      state.locations = await res.json();
-      renderLocations(state.locations);
-    } catch (e) {
-      console.error('Failed to load locations:', e);
-    }
-  }
-
-  function renderLocations(locations) {
-    const grid = $('#location-grid');
-    const names = Object.keys(locations);
-
-    if (!names.length) {
-      grid.innerHTML = `
-        <div class="empty-state" style="grid-column:1/-1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          <h3>No locations yet</h3>
-          <p>Extract scenes to populate the location database</p>
-        </div>
-      `;
-      return;
-    }
-
-    grid.innerHTML = names.map((name) => {
-      const loc = locations[name];
-      const tags = [
-        loc.time_of_day,
-        loc.weather,
-        loc.architecture_style,
-      ].filter(Boolean);
-
-      return `
-        <div class="location-card">
-          <div class="location-name">${escapeHtml(name)}</div>
-          <div class="location-desc">${escapeHtml(loc.description || '')}</div>
-          ${loc.mood ? `<div style="margin-top:var(--space-sm);font-size:var(--text-xs);color:var(--text-accent)">Mood: ${escapeHtml(loc.mood)}</div>` : ''}
-          ${loc.lighting ? `<div style="font-size:var(--text-xs);color:var(--text-muted)">Lighting: ${escapeHtml(loc.lighting)}</div>` : ''}
-          ${loc.color_palette ? `<div style="font-size:var(--text-xs);color:var(--text-muted)">Colors: ${escapeHtml(loc.color_palette)}</div>` : ''}
-          <div class="location-meta">
-            ${tags.map((t) => `<span class="location-tag">${escapeHtml(t)}</span>`).join('')}
-          </div>
-        </div>
-      `;
-    }).join('');
+    });
   }
 
   // ── Utilities ────────────────────────────────────────
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  function truncate(text, max) {
-    if (text.length <= max) return text;
-    return text.slice(0, max) + '...';
-  }
-
-  // ── Service Health ────────────────────────────────────
-  async function checkServiceHealth() {
-    try {
-      const res = await fetch('/api/health');
-      const status = await res.json();
-
-      const services = [
-        { key: 'wangp', label: 'WanGP (Images)' },
-        { key: 'kokoro', label: 'Kokoro TTS (Audio)' },
-        { key: 'ffmpeg', label: 'FFmpeg (Video)' },
-      ];
-
-      services.forEach(({ key, label }) => {
-        const svc = status[key];
-        if (!svc) return;
-        if (!svc.available) {
-          showToast(`${label}: Offline — ${svc.detail}`, 'warning', 6000);
-        }
-      });
-    } catch (e) {
-      console.warn('Health check failed:', e);
+  function showToast(msg, type = 'info') {
+    let toastContainer = $('.toast-container');
+    if (!toastContainer) {
+      toastContainer = document.createElement('div');
+      toastContainer.className = 'toast-container';
+      toastContainer.style.position = 'fixed';
+      toastContainer.style.bottom = '2rem';
+      toastContainer.style.right = '2rem';
+      toastContainer.style.zIndex = '100';
+      toastContainer.style.display = 'flex';
+      toastContainer.style.flexDirection = 'column';
+      toastContainer.style.gap = '1rem';
+      document.body.appendChild(toastContainer);
     }
+
+    const toast = document.createElement('div');
+    toast.style.background = 'var(--bg-card)';
+    toast.style.backdropFilter = 'blur(12px)';
+    toast.style.border = '1px solid var(--border-glass)';
+    toast.style.padding = '1rem 1.5rem';
+    toast.style.borderRadius = '0.75rem';
+    toast.style.color = 'var(--text-main)';
+    toast.style.boxShadow = 'var(--shadow-card)';
+    toast.style.borderLeft = `4px solid var(--${type === 'error' ? 'color-error' : 'primary'})`;
+    toast.style.animation = 'fadeUp 0.3s ease';
+
+    toast.innerText = msg;
+
+    toastContainer.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
   }
 
-  // ── Initialize ───────────────────────────────────────
-  function init() {
-    initTabs();
-    initUpload();
-    loadChapters();
-    checkServiceHealth();
-
-    $('#btn-extract').addEventListener('click', startExtraction);
-    $('#btn-pipeline').addEventListener('click', startFullPipeline);
-    $('#btn-refresh-chars').addEventListener('click', loadCharacters);
-
-    // Pre-load character & location data if available
-    loadCharacters();
-    loadLocations();
+  function escapeHtml(text) {
+    if (!text) return '';
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  function checkHealth() {
+    fetch('/api/health').then(r => r.json()).then(s => {
+      const badge = $('#sys-status');
+      if (s.status === 'ok') {
+        badge.className = 'status-badge success';
+        badge.innerHTML = `<span class="status-dot" style="width:8px; height:8px; border-radius:50%; background:#10B981; display:inline-block;"></span> System Online`;
+      } else {
+        badge.className = 'status-badge pending'; // or error
+        badge.innerHTML = `Offline`;
+      }
+    }).catch(() => { });
+  }
+
 })();

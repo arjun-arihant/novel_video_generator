@@ -88,8 +88,8 @@ async def extract_scenes(args: argparse.Namespace) -> int:
     db_path = output_path.parent / f"ch{chapter_data['chapter_number']:04d}_character_db.json"
     save_json(db_summary, db_path)
 
-    logger.info("Extracted %s scenes → %s", len(scenes), output_path)
-    logger.info("Character DB → %s", db_path)
+    logger.info("Extracted %s scenes -> %s", len(scenes), output_path)
+    logger.info("Character DB -> %s", db_path)
     logger.info(
         "Characters: %s",
         ", ".join(
@@ -144,10 +144,9 @@ async def generate_audio(args: argparse.Namespace) -> int:
 
     tts_manager = TTSManager()
 
-    results = await tts_manager.generate_batch_audio(
+    results = await tts_manager.generate_chapter_audio(
         scenes,
         output_dir,
-        max_concurrent=args.concurrent,
         default_voice="narrator",
     )
 

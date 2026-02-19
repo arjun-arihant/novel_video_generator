@@ -35,6 +35,8 @@ _CHARACTER_SCHEMA = {
     "voice_mix": [],          # list of voice IDs if using mixed voice
     "voice_speed": 1.0,
     "voice_notes": "",        # LLM reasoning for voice choice
+    "voice_design_params": {}, # Params used for Qwen3 Voice Design (gender, description)
+    "voice_sample_path": "",   # Path to the generated reference audio for cloning
     # Evolution tracking: chapter_id → changed fields
     "appearance_history": {},
 }
@@ -137,15 +139,20 @@ class ConsistencyStore:
         voice_mix: Optional[List[str]] = None,
         voice_speed: float = 1.0,
         voice_notes: str = "",
+        voice_design_params: Optional[Dict] = None,
+        voice_sample_path: str = "",
     ) -> None:
         """Set voice assignment for a character."""
         if name not in self.characters:
             self.characters[name] = deepcopy(_CHARACTER_SCHEMA)
             self.characters[name]["name"] = name
         self.characters[name]["voice_id"] = voice_id
-        self.characters[name]["voice_mix"] = voice_mix or []
+        if voice_mix: self.characters[name]["voice_mix"] = voice_mix
         self.characters[name]["voice_speed"] = voice_speed
-        self.characters[name]["voice_notes"] = voice_notes
+        if voice_notes: self.characters[name]["voice_notes"] = voice_notes
+        if voice_design_params: self.characters[name]["voice_design_params"] = voice_design_params
+        if voice_sample_path: self.characters[name]["voice_sample_path"] = voice_sample_path
+        
         self._save(self.characters_path, self.characters)
         logger.info("Voice assigned: %s → %s", name, voice_id)
 

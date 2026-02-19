@@ -1,55 +1,24 @@
-# Python
+# General
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-.venv/
-venv/
-ENV/
-env/
-*.egg-info/
-dist/
-build/
-
-# Environment & Secrets
 .env
-.env.local
-.env.*.local
+.venv
+venv/
+*.log
+.DS_Store
 
-# IDE & Editors
+# IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-.claude/
 
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
+# Data Storage Strategy
+data/*
+!data/
+!data/.gitkeep
+!data/README.txt
+!data/novels/.gitkeep
 
-# Project outputs (auto-created by pipeline)
-outputs/
-data/audio/
-data/images/
-data/videos/
-data/scenes/
-data/output/
-data/temp/
-data/uploads/
-data/web_runs/
-data/pipeline_*/
-data/consistency/
-
-# Temp directories
-temp_*/
-
-# Test artifacts
-test_output/
-test_audio.*
-test_image.*
-test_simple.*
-*.test.wav
-*.test.mp3
+# Generated Outputs (Legacy)
+output/
+runs/

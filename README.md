@@ -1,126 +1,91 @@
 # Novel Video Generator
 
-A Python pipeline + Web UI that converts novel chapters into narrated, illustrated videos.
+A Python pipeline + Web UI that converts novel chapters into narrated, illustrated videos using state-of-the-art AI.
 
 ## Pipeline
 
 ```
-EPUB → Scene Extraction (OpenRouter LLM) → Images (WanGP CLI) → Audio (Kokoro TTS) → Video (FFmpeg)
+EPUB/Text → Scene Extraction (OpenRouter LLM) → Images (WanGP/Qwen3) → Audio (Qwen3 TTS) → Video (FFmpeg)
 ```
 
-## Project Structure
+## Features
 
-```
-novel_video_generator/
-├── cli.py                  # CLI entry point
-├── configs/
-│   └── voices.yaml         # Kokoro voice presets (10 voices)
-├── data/
-│   └── ihacw/              # Novel chapter data
-├── src/
-│   ├── common/             # Config, logging, retry, validation
-│   ├── consistency/        # Character/location store + voice assignment
-│   ├── image/              # WanGP CLI image generator
-│   ├── llm/                # OpenRouter client
-│   ├── parser/             # Scene extraction from text
-│   ├── storage/            # EPUB loader
-│   ├── tts/                # Kokoro TTS engine + manager
-│   ├── video/              # FFmpeg video composer
-│   └── web/                # Streamlit web UI
-├── tests/                  # Test directory
-├── z_image_settings.json   # WanGP Z-Image settings template
-├── KOKORO_TTS_API_REFERENCE.md
-├── Wan2GP_CLI_headless_procesing_instructions.md
-├── requirements.txt
-└── .env                    # Environment config (not committed)
-```
+- **3-Pass TTS:** Optimized batch processing for Narrator, Voice Design, and Dialogue.
+- **Voice Cloning:** Characters use consistent voices derived from descriptions (Qwen3).
+- **Interactive UI:** Review & Edit scenes, regenerate specific assets, and manage consistency.
+- **Batch Processing:** Efficient image and audio generation using WanGP's internal batching.
 
 ## Prerequisites
 
-| Dependency | Purpose | Install |
+| Dependency | Purpose | Details |
 |-----------|---------|---------|
 | Python 3.10+ | Runtime | [python.org](https://python.org) |
-| OpenRouter API key | Scene extraction | [openrouter.ai](https://openrouter.ai) |
-| WanGP | Image generation | [GitHub](https://github.com/deepbeepmeep/WanGP) (local install) |
-| Kokoro TTS | Text-to-speech | [HuggingFace](https://huggingface.co/hexgrad/Kokoro-82M) (local server) |
-| FFmpeg | Video composition | [ffmpeg.org](https://ffmpeg.org/download.html) |
-| Conda | WanGP environment | [conda.io](https://docs.conda.io/) |
+| Conda | Environment | [conda.io](https://docs.conda.io/) |
+| WanGP | Image/TTS | [GitHub](https://github.com/deepbeepmeep/WanGP) (Installed in `D:\GeneAI\Wan2GP`) |
+| OpenRouter | LLM | API Key required |
+| FFmpeg | Video | Added to PATH |
 
 ## Setup
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate      # Windows
-pip install -r requirements.txt
-```
+1. **Python Environment:**
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-Edit `.env` with your keys and paths:
+2. **Conda Environment (for WanGP):**
+   Ensure `wan2gp` conda environment is created and WanGP is installed at `WANGP_PATH`.
 
-```env
-OPENROUTER_API_KEY=your_key_here
-KOKORO_BASE_URL=http://localhost:8000
-WANGP_PATH=D:\GeneAI\Wan2GP
-```
-
-### Start Services
-
-**Kokoro TTS:**
-```bash
-# Start server, then verify:
-curl http://localhost:8000/health
-```
-
-**WanGP:**
-```bash
-cd D:\GeneAI\Wan2GP
-conda activate wan2gp
-python wgp.py  # for web UI, or use --process for headless
-```
+3. **Configuration:**
+   Create `.env`:
+   ```env
+   OPENROUTER_API_KEY=sk-or-...
+   WANGP_PATH=D:\GeneAI\Wan2GP
+   ```
 
 ## Usage
 
-### Web UI
+### 🚀 Web Interface (Recommended)
+Launch the server:
 ```bash
-streamlit run -m src.web.app
+python -m src.web.web_server
+```
+Open [http://localhost:5000](http://localhost:5000)
+
+**Workflow:**
+1. **Pipeline Tab:** Upload Chapter or enter text.
+2. **Extract:** Parse scenes and characters.
+3. **Scenes Tab:** Review generated scenes.
+   - *Edit* text/dialogue.
+   - *Regenerate* specific images or audio if needed.
+4. **Generate:** Run full pipeline to create video.
+
+### 💻 CLI
+```bash
+# Full Pipeline
+python cli.py pipeline chapter.json --output data/runs/001
+
+# Step-by-Step
+python cli.py extract chapter.json
+python cli.py images scenes.json
+python cli.py audio scenes.json  # Uses Qwen3 via WanGP
+python cli.py video scenes.json
 ```
 
-1. Upload EPUB → select chapters → choose voice → review scenes → generate
+## Verification
 
-### CLI
+To verify the installation and pipeline:
 ```bash
-python cli.py pipeline chapter.json       # Full pipeline
-python cli.py extract chapter.json        # Scene extraction only
-python cli.py images scenes.json          # Image generation only
-python cli.py audio scenes.json           # TTS only
-python cli.py video scenes.json           # Video assembly only
+python tests/verify_pipeline.py
 ```
 
-## Voices
-
-10 Kokoro voices available (5 female, 5 male):
-
-| Key | Voice | Gender | Description |
-|-----|-------|--------|-------------|
-| narrator_female_1 | af_heart | F | ❤️ Warm, flagship (A grade) |
-| narrator_female_2 | af_bella | F | 🔥 Intimate, husky |
-| narrator_female_3 | af_sarah | F | 📚 Friendly educator |
-| narrator_female_4 | bf_emma | F | 🇬🇧 British professional |
-| narrator_female_5 | af_nova | F | 🌟 Natural, approachable |
-| narrator_male_1 | am_michael | M | 🎙️ Warm narrator |
-| narrator_male_2 | am_fenrir | M | ⚡ Energetic, clear |
-| narrator_male_3 | am_puck | M | 🎮 Youthful, upbeat |
-| narrator_male_4 | bm_fable | M | 📖 Refined storyteller |
-| narrator_male_5 | bm_george | M | 🎩 British classic |
-
-## Troubleshooting
-
-| Issue | Fix |
-|-------|-----|
-| Kokoro not responding | Verify `curl http://localhost:8000/health` returns OK |
-| WanGP not found | Set `WANGP_PATH` in `.env` to WanGP install directory |
-| Missing API key | Set `OPENROUTER_API_KEY` in `.env` |
-| FFmpeg not found | Install FFmpeg and add to PATH |
+## Project Structure
+- `src/web/`: Flask backend + Static frontend
+- `src/tts/`: Qwen3 integration (Wrappers around WanGP)
+- `src/consistency/`: Character & Location store
+- `src/image/`: WanGP image generation
+- `cli.py`: Command-line entry point
 
 ## License
-
 MIT
