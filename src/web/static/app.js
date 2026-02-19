@@ -15,7 +15,8 @@
     // Library State
     inputMode: 'lib', // 'lib' or 'raw'
     currentNovelId: null,
-    currentChapterPath: null
+    currentChapterPath: null,
+    currentChapterId: null
   };
 
   // ── DOM References ───────────────────────────────────
@@ -198,6 +199,8 @@
 
   // Ignition Logic
   window.igniteChapter = async function (chapterPath) {
+    state.currentChapterPath = chapterPath;
+    state.currentChapterId = null;
     ignite({ chapter_path: chapterPath, force_extract: false });
   };
 
@@ -233,6 +236,7 @@
       if (data.error) throw new Error(data.error);
 
       state.currentJobId = data.job_id;
+      if (data.chapter_id) state.currentChapterId = data.chapter_id;
       showToast("Engine Ignited. Vision extracted.", "success");
 
       // Auto-advance
@@ -312,7 +316,8 @@
     const evtSource = new EventSource(`/api/progress/${jobId}`);
     evtSource.onmessage = (e) => {
       const msg = JSON.parse(e.data);
-      if (msg.step === 'complete') {
+      if (msg.chapter_id) state.currentChapterId = msg.chapter_id;
+        if (msg.step === 'complete') {
         evtSource.close();
         showToast("Images generated.", "success");
         // Refresh scenes to show images? 
@@ -472,7 +477,7 @@
       const res = await fetch('/api/pipeline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chapter_path: state.currentJobId })
+        body: JSON.stringify({ chapter_path: state.currentChapterPath || state.currentJobId })
       });
 
       const data = await res.json();
@@ -488,6 +493,7 @@
           terminal.scrollTop = terminal.scrollHeight;
         }
 
+        if (msg.chapter_id) state.currentChapterId = msg.chapter_id;
         if (msg.step === 'complete') {
           evtSource.close();
           terminal.innerHTML += `<br>><span style="color: var(--color-success)"> PRODUCTION COMPLETE.</span>`;
@@ -513,7 +519,8 @@
     // The pipeline saves to WEB_RUN_DIR/chXXXX/scenes.json etc.
     // The previous code returned "video" in list_outputs.
 
-    fetch(`/api/outputs/${state.currentJobId}`).then(r => r.json()).then(data => {
+    const outputKey = state.currentChapterId || state.currentJobId;
+    fetch(`/api/outputs/${outputKey}`).then(r => r.json()).then(data => {
       if (data.video && data.video.length) {
         const videoPath = data.video[0].name; // Just name is needed if served under correct path
         // Serve path logic? 
@@ -538,7 +545,7 @@
 
         // Let's rely on standard path serving for now or fix this later.
         // Assume typical path for now.
-        container.innerHTML = `<p>Video generation complete. Check output folder.</p>`;
+        container.innerHTML = `<video controls style="width:100%;height:100%" src="/runs/${outputKey}/${data.video[0].name}"></video>`;
       } else {
         container.innerHTML = `<p>No video found.</p>`;
       }

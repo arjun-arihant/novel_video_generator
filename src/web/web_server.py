@@ -256,6 +256,7 @@ def extract_scenes():
                 "status": "cached",
                 "scenes_count": cached.get("scenes_count", 0),
                 "message": f"Scenes already extracted ({cached.get('scenes_count', '?')} scenes). Use force=true to re-extract.",
+                "chapter_id": cached.get("chapter_id"),
             })
 
     job_id = f"extract_{int(time.time())}"
@@ -308,6 +309,7 @@ def extract_scenes():
             _progress_queues[job_id].put({
                 "step": "complete", "percent": 100,
                 "scenes_count": len(scenes), "job_id": job_id,
+                "chapter_id": chapter_id,
             })
         except Exception as e:
             logger.error("Extraction failed: %s", e, exc_info=True)
@@ -603,6 +605,7 @@ def run_pipeline():
                 "job_id": job_id, "scenes_count": len(scenes),
                 "detail": summary,
                 "output_dir": str(run_dir.resolve()),
+                "chapter_id": chapter_id,
             })
         except Exception as e:
             logger.error("Pipeline failed: %s", e, exc_info=True)
