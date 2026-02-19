@@ -15,9 +15,7 @@ venv/
 # Data Storage Strategy
 data/*
 !data/
-!data/.gitkeep
-!data/README.txt
-!data/novels/.gitkeep
+!data/YOUR_DATA_IS_STORED_HERE.txt
 
 # Generated Outputs (Legacy)
 output/

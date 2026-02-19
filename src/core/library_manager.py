@@ -22,9 +22,16 @@ class LibraryManager:
     data/novels/
       [novel_id]_[safe_title]/
         source/ (original epub)
-        chapters/ (json text)
-        workspace/ (scenes.json, characters.json)
-        assets/ (images, audio, video)
+        chapters/ (chapter JSON files)
+        processing/ (chapter-specific extraction/assets/db)
+          ch001/
+            extraction/
+            consistency/
+            assets/images/
+            assets/audio/
+            assets/voice_samples/
+            video/
+            logs/
         exports/
     """
 
@@ -67,12 +74,11 @@ class LibraryManager:
         # Create Structure
         (novel_dir / "source").mkdir(parents=True, exist_ok=True)
         (novel_dir / "chapters").mkdir(parents=True, exist_ok=True)
-        (novel_dir / "workspace").mkdir(parents=True, exist_ok=True)
-        (novel_dir / "assets").mkdir(parents=True, exist_ok=True)
+        (novel_dir / "processing").mkdir(parents=True, exist_ok=True)
         (novel_dir / "exports").mkdir(parents=True, exist_ok=True)
 
         # Move Source
-        shutil.copy(epub_path, novel_dir / "source" / Path(epub_path).name)
+        shutil.copy(epub_path, novel_dir / "source" / "original.epub")
 
         # Save Chapters
         chapter_manifest = []
@@ -90,10 +96,20 @@ class LibraryManager:
                     "order": i + 1
                 }, f, indent=2)
             
+            chapter_processing_dir = novel_dir / "processing" / chapter_id
+            (chapter_processing_dir / "extraction").mkdir(parents=True, exist_ok=True)
+            (chapter_processing_dir / "consistency").mkdir(parents=True, exist_ok=True)
+            (chapter_processing_dir / "assets" / "images").mkdir(parents=True, exist_ok=True)
+            (chapter_processing_dir / "assets" / "audio").mkdir(parents=True, exist_ok=True)
+            (chapter_processing_dir / "assets" / "voice_samples").mkdir(parents=True, exist_ok=True)
+            (chapter_processing_dir / "video").mkdir(parents=True, exist_ok=True)
+            (chapter_processing_dir / "logs").mkdir(parents=True, exist_ok=True)
+
             chapter_manifest.append({
                 "id": chapter_id,
                 "title": chapter['title'],
                 "path": str(chapter_path),
+                "processing_dir": str(chapter_processing_dir),
                 "preview": chapter['content'][:100] + "..."
             })
 
@@ -104,7 +120,8 @@ class LibraryManager:
             "author": book_data['author'],
             "created_at": datetime.now().isoformat(),
             "chapter_count": len(chapter_manifest),
-            "directory": str(novel_dir)
+            "directory": str(novel_dir),
+            "source_epub": str((novel_dir / "source" / "original.epub")),
         }
         
         with open(novel_dir / "metadata.json", 'w', encoding='utf-8') as f:
@@ -162,3 +179,11 @@ class LibraryManager:
             with open(chapter_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return None
+
+    def resolve_chapter_processing_dir(self, novel_id: str, chapter_id: str) -> Optional[Path]:
+        """Return processing directory for chapter in a novel."""
+        novel = self.get_novel(novel_id)
+        if not novel:
+            return None
+        novel_dir = Path(novel['directory'])
+        return novel_dir / "processing" / chapter_id

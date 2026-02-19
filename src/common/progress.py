@@ -1,4 +1,4 @@
-/"""
+"""
 Progress tracking and callback system for pipeline operations.
 
 Provides a comprehensive progress tracking system with support for:
