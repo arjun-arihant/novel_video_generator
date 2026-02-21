@@ -24,7 +24,7 @@ _BASE_SETTINGS = {
     "image_mode": 1,
     "alt_prompt": "",
     "negative_prompt": "",
-    "resolution": "1920x1088",
+    "resolution": "1280x720",
     "video_length": 1,
     "batch_size": 1,
     "num_inference_steps": 8,
@@ -181,8 +181,12 @@ class ImageGenerator:
             # Determine command based on configuration
             conda_activate = os.getenv("CONDA_ACTIVATE_PATH")
             if conda_activate and Path(conda_activate).exists():
+                conda_base = Path(conda_activate).parent.parent
+                condabin = conda_base / "condabin"
+                
                 # Method 1: Explicit activation script (Most robust on Windows)
                 cmd = (
+                    f'set "PATH={condabin};%PATH%" && '
                     f'call "{conda_activate}" {self.conda_env} && '
                     f'python wgp.py '
                     f'--process "{settings_file}" '
@@ -242,9 +246,8 @@ class ImageGenerator:
         """Enhance prompt with style tags if not already present."""
         style_suffix = (
             ", detailed cinematic manhua webtoon style, "
-            "clean line art, vibrant colors, soft depth of field, "
-            "4k resolution, consistent character design"
+            "clean line art, vibrant colors, soft depth of field"
         )
-        if "manhua" not in prompt.lower() and "consistent character" not in prompt.lower():
+        if "manhua" not in prompt.lower() and "clean line art" not in prompt.lower():
             return f"{prompt}{style_suffix}"
         return prompt

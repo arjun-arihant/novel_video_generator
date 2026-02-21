@@ -122,8 +122,8 @@ class PipelineConfig:
     image: ImageGenerationConfig = field(default_factory=ImageGenerationConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
-    output_dir: Path = field(default_factory=lambda: Path("data/output"))
-    temp_dir: Path = field(default_factory=lambda: Path("data/temp"))
+    output_dir: Path = field(default_factory=lambda: Path(".output"))
+    temp_dir: Path = field(default_factory=lambda: Path(".temp"))
     log_level: str = "INFO"
     continue_on_error: bool = True
     max_scenes: int = 10
@@ -171,8 +171,8 @@ class PipelineConfig:
             openrouter=openrouter_config,
             kokoro=kokoro_config,
             wangp=wangp_config,
-            output_dir=Path(os.getenv("OUTPUT_DIR", "data/output")),
-            temp_dir=Path(os.getenv("TEMP_DIR", "data/temp")),
+            output_dir=Path(os.getenv("OUTPUT_DIR", ".output")),
+            temp_dir=Path(os.getenv("TEMP_DIR", ".temp")),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             continue_on_error=os.getenv("CONTINUE_ON_ERROR", "true").lower() == "true",
         )
@@ -215,8 +215,8 @@ class PipelineConfig:
             openrouter=openrouter_config,
             kokoro=kokoro_config,
             wangp=wangp_config,
-            output_dir=Path(data.get('output_dir', 'data/output')),
-            temp_dir=Path(data.get('temp_dir', 'data/temp')),
+            output_dir=Path(data.get('output_dir', '.output')),
+            temp_dir=Path(data.get('temp_dir', '.temp')),
             log_level=data.get('log_level', 'INFO'),
         )
 

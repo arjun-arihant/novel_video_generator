@@ -21,6 +21,7 @@ from src.tts.manager import TTSManager
 from src.video.composer import VideoComposer
 from src.consistency.store import ConsistencyStore
 from src.consistency.voice_assigner import assign_voices_with_llm
+from src.core.library_manager import LibraryManager
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,17 @@ async def extract_scenes(args: argparse.Namespace) -> int:
     """Extract scenes from chapter with rich character/location data."""
     logger.info("Extracting scenes from: %s", args.chapter)
 
+    # Require novel title for consistency store
+    if not args.novel:
+        logger.error("--novel argument is required to specify the novel for consistency data")
+        return 1
+
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(args.novel)
+    if not consistency_dir:
+        logger.error("Novel '%s' not found. Please upload it first.", args.novel)
+        return 1
+
     chapter_data = load_json(args.chapter)
     validate_chapter(chapter_data)
 
@@ -51,11 +63,26 @@ async def extract_scenes(args: argparse.Namespace) -> int:
     if "paragraphs" in chapter_data and "content" not in chapter_data:
         chapter_data["content"] = chapter_data["paragraphs"]
 
-    chapter_id = f"ch{chapter_data['chapter_number']:04d}"
+    # Handle chapter_number that may be int or string like "ch129"
+    raw_chapter_num = chapter_data.get('chapter_number', chapter_data.get('id', '001'))
+    if isinstance(raw_chapter_num, str):
+        # Extract numeric part if it's like "ch129"
+        import re
+        match = re.search(r'\d+', raw_chapter_num)
+        if match:
+            chapter_num = int(match.group())
+        else:
+            chapter_num = 1
+    else:
+        chapter_num = int(raw_chapter_num)
+    
+    chapter_id = f"ch{chapter_num:04d}"
     max_scenes = getattr(args, "max_scenes", 8)
 
-    extractor = SceneExtractor()
-    chapter_text = "\n".join(chapter_data["content"])
+    extractor = SceneExtractor(consistency_dir=consistency_dir)
+    
+    # Content could be a string (old) or list of strings (new chunk format)
+    chapter_text = chapter_data.get("content", chapter_data.get("paragraphs", ""))
 
     # Step 1: Extract scenes with rich character/location profiles
     response = extractor.extract_scenes(
@@ -79,13 +106,13 @@ async def extract_scenes(args: argparse.Namespace) -> int:
     scenes = extractor.enrich_scene_prompts(scenes, chapter_id=chapter_id)
 
     output_path = args.output or Path(
-        f"data/scenes/ch{chapter_data['chapter_number']:04d}_scenes.json"
+        f"data/{args.novel}/scenes/ch{chapter_num:04d}_scenes.json"
     )
     save_json(scenes, output_path)
 
     # Save enriched data summary
     db_summary = store.export_for_llm()
-    db_path = output_path.parent / f"ch{chapter_data['chapter_number']:04d}_character_db.json"
+    db_path = output_path.parent / f"ch{chapter_num:04d}_character_db.json"
     save_json(db_summary, db_path)
 
     logger.info("Extracted %s scenes -> %s", len(scenes), output_path)
@@ -104,14 +131,25 @@ async def generate_images(args: argparse.Namespace) -> int:
     """Generate images for scenes with character seed pinning."""
     logger.info("Generating images from: %s", args.scenes)
 
+    # Require novel title for consistency store
+    if not args.novel:
+        logger.error("--novel argument is required to specify the novel for consistency data")
+        return 1
+
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(args.novel)
+    if not consistency_dir:
+        logger.error("Novel '%s' not found. Please upload it first.", args.novel)
+        return 1
+
     scenes = load_json(args.scenes)
     validate_scenes(scenes)
 
-    output_dir = args.output or Path("data/images")
+    output_dir = args.output or Path(f"data/{args.novel}/images")
     ensure_output_dir(output_dir)
 
     generator = ImageGenerator()
-    store = ConsistencyStore()
+    store = ConsistencyStore(consistency_dir)
 
     for i, scene in enumerate(scenes):
         output_path = output_dir / f"scene_{i:03d}.png"
@@ -139,7 +177,7 @@ async def generate_audio(args: argparse.Namespace) -> int:
     scenes = load_json(args.scenes)
     validate_scenes(scenes)
 
-    output_dir = args.output or Path("data/audio")
+    output_dir = args.output or Path(f"data/{args.novel}/audio")
     ensure_output_dir(output_dir)
 
     tts_manager = TTSManager()
@@ -167,9 +205,9 @@ async def build_video(args: argparse.Namespace) -> int:
     scenes = load_json(args.scenes)
     validate_scenes(scenes)
 
-    images_dir = args.images or Path("data/images")
-    audio_dir = args.audio or Path("data/audio")
-    output_path = args.output or Path("data/videos/output.mp4")
+    images_dir = args.images or Path(f"data/{args.novel}/images")
+    audio_dir = args.audio or Path(f"data/{args.novel}/audio")
+    output_path = args.output or Path(f"data/{args.novel}/videos/output.mp4")
 
     for i in range(len(scenes)):
         image_path = images_dir / f"scene_{i:03d}.png"
@@ -222,19 +260,101 @@ async def test_image(args: argparse.Namespace) -> int:
         logger.error("FAILURE: Image generation failed")
         return 1
 
+async def reingest_epub(args: argparse.Namespace) -> int:
+    """Reingest an EPUB to generate fresh chunked chapter JSONs, deleting the old ones."""
+    logger.info("Reingesting EPUB for novel: %s", args.novel)
+    
+    manager = LibraryManager()
+    novel = manager.get_novel(args.novel)
+    
+    if not novel:
+        logger.error("Novel '%s' not found. Please upload it first.", args.novel)
+        return 1
+        
+    source_epub = novel.get("source_epub")
+    if not source_epub or not Path(source_epub).exists():
+        logger.error("Source EPUB for '%s' not found at %s. Cannot reingest.", args.novel, source_epub)
+        return 1
+        
+    novel_dir = Path(novel["directory"])
+    chapters_dir = novel_dir / "chapters"
+    
+    logger.info("Deleting existing chapters inside %s...", chapters_dir)
+    if chapters_dir.exists():
+        import shutil
+        shutil.rmtree(chapters_dir)
+        
+    chapters_dir.mkdir(parents=True, exist_ok=True)
+    
+    # We load library_manager.create_novel_from_epub, but since we already have the folder
+    # We just need to rerun the parsing and saving chapter logic without deleting the consistency DB
+    logger.info("Parsing EPUB: %s", source_epub)
+    from src.core.epub_parser import EpubParser
+    parser = EpubParser(source_epub)
+    book_data = parser.parse()
+    
+    chapter_manifest = []
+    for i, chapter in enumerate(book_data['chapters']):
+        chapter_id = f"ch{str(i+1).zfill(3)}"
+        chapter_filename = f"{chapter_id}.json"
+        chapter_path = chapters_dir / chapter_filename
+        
+        # Save Text Content
+        with open(chapter_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                "id": chapter_id,
+                "title": chapter['title'],
+                "content": chapter['content'],
+                "order": i + 1
+            }, f, indent=2, ensure_ascii=False)
+            
+        chapter_manifest.append({
+            "id": chapter_id,
+            "title": chapter['title'],
+            "path": str(chapter_path)
+        })
+        
+    # Update Metadata Chapter Count
+    novel["chapter_count"] = len(chapter_manifest)
+    with open(novel_dir / "metadata.json", 'w', encoding='utf-8') as f:
+        json.dump(novel, f, indent=2)
+
+    logger.info("Reingested %d chapters successfully for '%s'.", len(chapter_manifest), args.novel)
+    return 0
+
 
 async def run_full_pipeline(args: argparse.Namespace) -> int:
     """Run the complete enriched pipeline."""
     logger.info("Running enriched pipeline for: %s", args.chapter)
+
+    # Require novel title for consistency store
+    if not args.novel:
+        logger.error("--novel argument is required to specify the novel for consistency data")
+        return 1
+
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(args.novel)
+    if not consistency_dir:
+        logger.error("Novel '%s' not found. Please upload it first.", args.novel)
+        return 1
 
     chapter_data = load_json(args.chapter)
 
     if "id" in chapter_data and "chapter_number" not in chapter_data:
         chapter_data["chapter_number"] = chapter_data["id"]
 
-    chapter_num = chapter_data["chapter_number"]
+    raw_chapter_num = chapter_data.get('chapter_number', chapter_data.get('id', '001'))
+    if isinstance(raw_chapter_num, str):
+        import re
+        match = re.search(r'\d+', raw_chapter_num)
+        if match:
+            chapter_num = int(match.group())
+        else:
+            chapter_num = 1
+    else:
+        chapter_num = int(raw_chapter_num)
 
-    work_dir = args.output or Path(f"data/pipeline_ch{chapter_num:04d}")
+    work_dir = args.output or Path(f"data/{args.novel}/pipeline_ch{chapter_num:04d}")
     ensure_output_dir(work_dir)
 
     scenes_path = work_dir / "scenes.json"
@@ -248,7 +368,7 @@ async def run_full_pipeline(args: argparse.Namespace) -> int:
     logger.info("=" * 60)
     max_scenes = getattr(args, "max_scenes", 8)
     extract_args = argparse.Namespace(
-        chapter=args.chapter, output=scenes_path, max_scenes=max_scenes,
+        chapter=args.chapter, output=scenes_path, max_scenes=max_scenes, novel=args.novel,
     )
     if await extract_scenes(extract_args) != 0:
         return 1
@@ -262,6 +382,7 @@ async def run_full_pipeline(args: argparse.Namespace) -> int:
         output=images_dir,
         force=False,
         continue_on_error=True,
+        novel=args.novel,
     )
     if await generate_images(image_args) != 0:
         return 1
@@ -318,33 +439,41 @@ def main() -> None:
     extract_parser.add_argument("chapter", type=Path, help="Path to chapter JSON file")
     extract_parser.add_argument("-o", "--output", type=Path, help="Output scenes JSON path")
     extract_parser.add_argument("--max-scenes", type=int, default=8, help="Maximum scenes to extract")
+    extract_parser.add_argument("-n", "--novel", type=str, required=True, help="Novel title for consistency data")
 
     images_parser = subparsers.add_parser("images", help="Generate images for scenes")
     images_parser.add_argument("scenes", type=Path, help="Path to scenes JSON file")
     images_parser.add_argument("-o", "--output", type=Path, help="Output directory for images")
     images_parser.add_argument("-f", "--force", action="store_true", help="Regenerate existing images")
     images_parser.add_argument("--continue-on-error", action="store_true", help="Continue if some images fail")
+    images_parser.add_argument("-n", "--novel", type=str, required=True, help="Novel title for consistency data")
 
     audio_parser = subparsers.add_parser("audio", help="Generate audio for scenes")
     audio_parser.add_argument("scenes", type=Path, help="Path to scenes JSON file")
     audio_parser.add_argument("-o", "--output", type=Path, help="Output directory for audio")
     audio_parser.add_argument("-c", "--concurrent", type=int, default=3, help="Max concurrent generations")
     audio_parser.add_argument("--continue-on-error", action="store_true", help="Continue if some audio fails")
+    audio_parser.add_argument("-n", "--novel", type=str, required=True, help="Novel title for data storage")
 
     video_parser = subparsers.add_parser("video", help="Build video from scenes, images, and audio")
     video_parser.add_argument("scenes", type=Path, help="Path to scenes JSON file")
     video_parser.add_argument("--images", type=Path, help="Directory containing images")
     video_parser.add_argument("--audio", type=Path, help="Directory containing audio")
     video_parser.add_argument("-o", "--output", type=Path, help="Output video path")
+    video_parser.add_argument("-n", "--novel", type=str, required=True, help="Novel title for data storage")
 
     pipeline_parser = subparsers.add_parser("pipeline", help="Run full pipeline")
     pipeline_parser.add_argument("chapter", type=Path, help="Path to chapter JSON file")
     pipeline_parser.add_argument("-o", "--output", type=Path, help="Working directory for pipeline")
     pipeline_parser.add_argument("--max-scenes", type=int, default=8, help="Max scenes to extract")
+    pipeline_parser.add_argument("-n", "--novel", type=str, required=True, help="Novel title for consistency data")
 
     test_image_parser = subparsers.add_parser("image-gen", help="Generate single test image")
     test_image_parser.add_argument("prompt", type=str, help="Image prompt description")
     test_image_parser.add_argument("-o", "--output", type=Path, help="Output image path")
+
+    reingest_parser = subparsers.add_parser("reingest-epub", help="Reingest the source EPUB to update chunking")
+    reingest_parser.add_argument("-n", "--novel", type=str, required=True, help="Novel title to reingest")
 
     args = parser.parse_args()
     setup_logging(level=args.log_level)
@@ -356,6 +485,7 @@ def main() -> None:
         "audio": generate_audio,
         "video": build_video,
         "pipeline": run_full_pipeline,
+        "reingest-epub": reingest_epub,
     }
 
     try:

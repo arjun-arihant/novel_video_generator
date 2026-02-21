@@ -131,7 +131,7 @@ def main() -> None:
     if st.session_state.scenes:
         st.header("5. Generate video")
         if st.button("Generate"):
-            output_dir = Path("data/web_runs")
+            output_dir = Path(".web_runs")
             ensure_output_dir(output_dir)
 
             store = ConsistencyStore()

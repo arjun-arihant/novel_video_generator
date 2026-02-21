@@ -6,7 +6,7 @@ character DB data for consistent image generation.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from ..consistency.store import ConsistencyStore
 from ..llm.openrouter_client import OpenRouterClient
@@ -16,20 +16,23 @@ logger = logging.getLogger(__name__)
 # Image style template appended to every visual description
 IMAGE_STYLE_TAG = (
     ", detailed cinematic manhua webtoon style, clean line art, vibrant colors, "
-    "soft depth of field, 4k resolution, consistent character design"
+    "soft depth of field"
 )
 
 
 class SceneExtractor:
     """Extracts visual scenes from chapter text with rich character/location data."""
 
-    def __init__(self, model_name: Optional[str] = None) -> None:
+    def __init__(self, model_name: Optional[str] = None, consistency_dir: Optional[Any] = None) -> None:
         self.client = OpenRouterClient(model=model_name)
-        self.store = ConsistencyStore()
+        # Each novel needs its own consistency store
+        if consistency_dir is None:
+            raise ValueError("consistency_dir is required - each novel needs its own consistency store")
+        self.store = ConsistencyStore(consistency_dir)
 
     def extract_scenes(
         self,
-        chapter_text: str,
+        chapter_text: Union[str, List[str]],
         max_scenes: int = 8,
         chapter_id: str = "",
         prior_context: str = "",
@@ -39,67 +42,57 @@ class SceneExtractor:
         The LLM auto-populates ALL appearance fields even if the novel doesn't
         mention them, ensuring consistent image generation.
         """
-        truncated_text = chapter_text[:50000]
+        if isinstance(chapter_text, str):
+            chunks = [chapter_text[:50000]]
+        else:
+            chunks = chapter_text
+            
         existing_db = self.store.export_for_llm()
 
         system = (
-            "You are a screenplay assistant, cinematographer, and character designer. "
-            "Output strict JSON. Do NOT wrap in markdown code fences."
+            "You are a professional storyboard artist and screenwriter for an animated adaptation "
+            "of a fantasy/cultivation novel. You take chapters and break them down into visually "
+            "distinct scenes."
         )
         
         context_block = ""
         if prior_context:
             context_block = f"PREVIOUS CHAPTER CONTEXT:\n{prior_context}\n\n"
 
-        user = (
+        user_template = (
             f"{context_block}"
-            f"Break this chapter into 3 to {max_scenes} scenes for illustration and narration.\n\n"
+            f"Break this chapter into 3 to {{max_scenes}} scenes for illustration and narration.\n\n"
             "Return JSON with three keys: scenes, characters, locations.\n\n"
             "## scenes\n"
-            "Array of objects:\n"
+            "Array of scene objects:\n"
             "- id (int)\n"
             "- title (string)\n"
-            "- visual_description (string) — detailed scene for illustration. Focus on the action and setting.\n"
+            "- visual_description (string) — A 2-4 line concise description of ONLY what is physically visible in this specific single camera frame. Do NOT describe impossible perspectives (e.g., a front closeup of a face while also detailing the phone screen they look at, or a tight shot that also describes the entire 360-degree room and outside scenery). Instead of using proper nouns or names, describe subjects and locations entirely through their physical traits and clothing using the existing database. Do NOT refer to previous scenes or external context. Every prompt must be 100% self-sufficient and independent. Example: 'A brightly lit classroom with wooden desks. A teenage boy with messy black hair wearing a white uniform sits by the window reading a book.'\n"
             "- atmospheric_lighting (string) — e.g. 'dim distinct shadows', 'god rays', 'neon glow'\n"
             "- composition_notes (string) — e.g. 'wide shot', 'dutch angle', 'close up on face'\n"
             "- narrative_detail (string) — specific small details relevant to the story\n"
-            "- sequence (array of objects) — chronological text segments. Each object MUST be:\n"
-            "    - { 'type': 'narration', 'text': '...', 'mood': '...' } — 'mood' field for narrator prosody\n"
-            "    - { 'type': 'dialogue', 'speaker': 'Name', 'text': '...', 'mood': '...' } — 'mood' field for voice Acting\n"
+            "- sequence (array of objects): The exact narrative flow, including BOTH narration and dialogue in order.\n"
+            "   Each sequence item has:\n"
+            "   - type (string): either 'narration' or 'dialogue'\n"
+            "   - text (string): the actual paragraph or spoken line\n"
+            "   - speaker (string): character name if dialogue, or 'narrator' if narration\n"
             "- characters (array of character names in this scene)\n"
             "- locations (array of location names in this scene)\n"
             "- time_of_day (string) — morning/afternoon/evening/night\n"
-            "- lighting (string)\n"
+            "- weather (string) — clear/rain/snow/fog/etc\n"
             "- mood (string)\n\n"
             "CRITICAL:\n"
             "1. You MUST cover EVERY line of the original text. Do not summarize or skip.\n"
-            "2. Preservation: 'he said', 'she yelled' must be in 'narration' segments placed strictly between dialogue segments.\n"
-            "3. Visuals: 'visual_description' must be rich, consistent, and independent of the text sequence. Use 'atmospheric_lighting' and 'composition_notes' to guide the image generator.\n"
-            "4. Output valid JSON only."
-            "- estimated_duration (int) — seconds\n"
-            "- transition_from_previous (string) — how this scene connects to the previous "
-            "(e.g. 'moments later', 'same time different location', 'time skip'). Empty for scene 1.\n\n"
+            "2. Ensure the sequence perfectly matches the flow of the chapter chunk.\n"
+            "3. The sequence should interleave narration blocks and dialogue blocks naturally.\n\n"
             "## characters\n"
-            "Array of UNIQUE character profiles. CRITICAL: You MUST fill in ALL appearance fields "
-            "even if the novel doesn't describe them. Invent plausible appearance details based on "
-            "the character's role, personality, and cultural context. This is essential for "
-            "consistent image generation.\n\n"
-            "Fields per character:\n"
+            "Array of UNIQUE character profiles appearing in this chunk (use existing if possible):\n"
             "- name (string)\n"
-            "- aliases (array of strings)\n"
-            "- gender (string) — male/female\n"
-            "- age_range (string) — e.g. '17-18', 'mid-30s'\n"
-            "- build (string) — e.g. 'slender', 'athletic', 'stocky'\n"
-            "- height (string) — e.g. 'average', 'tall'\n"
-            "- skin_tone (string) — e.g. 'fair', 'tan', 'olive'\n"
-            "- hair_color (string)\n"
-            "- hair_style (string) — e.g. 'short cropped', 'long flowing', 'tied in bun'\n"
-            "- eye_color (string)\n"
-            "- clothing (string) — DETAILED current outfit\n"
-            "- distinguishing_features (string) — scars, accessories, items carried\n"
-            "- disposition (string) — current mood/expression\n"
-            "- personality (string)\n"
-            "- role (string) — protagonist, antagonist, side character, minor\n"
+            "- age (string)\n"
+            "- gender (string)\n"
+            "- appearance (string) — physical traits\n"
+            "- clothing (string) — what they are wearing in this chapter\n"
+            "- disposition (string) — their current emotional state\n"
             "- vocal_description (string) — how their voice sounds\n\n"
             "## locations\n"
             "Array of UNIQUE location profiles:\n"
@@ -116,33 +109,73 @@ class SceneExtractor:
             "- If a character exists in the database below, keep their existing appearance "
             "but update clothing/disposition if changed in this chapter.\n"
             "- For NEW characters, invent ALL appearance details — do NOT leave any field empty.\n"
-            "- narration should NOT include dialogue lines.\n"
-            "- visual_description should be rich enough to generate an illustration.\n\n"
-            f"EXISTING CHARACTER/LOCATION DATABASE:\n{existing_db}\n\n"
-            f"CHAPTER TEXT:\n{truncated_text}"
+            "- visual_description should be unique for every scene to avoid repetition in generated videos.\n\n"
+            "EXISTING CHARACTER/LOCATION DATABASE:\n{existing_db}\n\n"
+            "CHAPTER TEXT CHUNK:\n{chunk_text}"
         )
 
-        response = self.client.generate_json(
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            max_tokens=16384,
-        )
+        all_scenes = []
+        all_characters = []
+        all_locations = []
+        
+        # Max scenes per chunk logic
+        scenes_per_chunk = max(3, max_scenes // len(chunks)) if len(chunks) > 0 else max_scenes
+        
+        current_scene_id = 1
 
-        scenes = response.get("scenes", [])
-        characters = response.get("characters", [])
-        locations = response.get("locations", [])
+        for i, chunk in enumerate(chunks):
+            logger.info("Extracting from chunk %d/%d (%d words)", i+1, len(chunks), len(chunk.split()))
+            
+            # Format the prompt for this specific chunk
+            chunk_user_prompt = user_template.format(
+                context_block=context_block,
+                max_scenes=scenes_per_chunk,
+                existing_db=existing_db,
+                chunk_text=chunk
+            )
+            
+            response = self.client.generate_json(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": chunk_user_prompt},
+                ],
+                max_tokens=16384,
+            )
+            
+            chunk_scenes = response.get("scenes", [])
+            for scene in chunk_scenes:
+                scene["id"] = current_scene_id  # Enforce sequential IDs across chunks
+                current_scene_id += 1
+                all_scenes.append(scene)
+                
+            all_characters.extend(response.get("characters", []))
+            all_locations.extend(response.get("locations", []))
 
-        # Update consistency store
-        self.store.upsert_characters(characters, chapter_id=chapter_id)
-        self.store.upsert_locations(locations)
+        # Deduplicate characters
+        unique_characters = []
+        seen_chars = set()
+        for char in all_characters:
+            if char.get("name") not in seen_chars:
+                unique_characters.append(char)
+                seen_chars.add(char.get("name"))
+                
+        # Deduplicate locations
+        unique_locations = []
+        seen_locs = set()
+        for loc in all_locations:
+            if loc.get("name") not in seen_locs:
+                unique_locations.append(loc)
+                seen_locs.add(loc.get("name"))
+
+        # Update consistency store with deductive sets
+        self.store.upsert_characters(unique_characters, chapter_id=chapter_id)
+        self.store.upsert_locations(unique_locations)
         logger.info(
-            "Extracted %d scenes, %d characters, %d locations",
-            len(scenes), len(characters), len(locations),
+            "Extracted %d scenes, %d characters, %d locations across %d chunks",
+            len(all_scenes), len(unique_characters), len(unique_locations), len(chunks)
         )
 
-        return {"scenes": scenes, "characters": characters, "locations": locations}
+        return {"scenes": all_scenes, "characters": unique_characters, "locations": unique_locations}
 
     def enrich_scene_prompts(
         self,
@@ -160,27 +193,6 @@ class SceneExtractor:
         for scene in scenes:
             visual = scene.get("visual_description", "")
 
-            # Inject character descriptors
-            scene_characters = scene.get("characters", [])
-            for char_name in scene_characters:
-                descriptor = self.store.get_character_image_descriptor(
-                    char_name, chapter_id=chapter_id
-                )
-                if descriptor != char_name:
-                    # Replace first occurrence of bare name with full descriptor
-                    visual = visual.replace(char_name, descriptor, 1)
-
-            # Inject location descriptors
-            scene_locations = scene.get("locations", [])
-            location_context = []
-            for loc_name in scene_locations:
-                loc_desc = self.store.get_location_image_descriptor(loc_name)
-                if loc_desc != loc_name:
-                    location_context.append(loc_desc)
-
-            if location_context:
-                visual = f"{visual}. Setting: {'; '.join(location_context)}"
-
             # Scene transition consistency
             if prev_scene:
                 transition = scene.get("transition_from_previous", "")
@@ -189,27 +201,26 @@ class SceneExtractor:
                 if transition and "moments later" in transition.lower() and prev_lighting:
                     if not cur_lighting:
                         scene["lighting"] = prev_lighting
-                    visual = f"{visual}. Lighting consistent with previous scene: {prev_lighting}"
+                    visual = f"{visual}, consistent lighting with previous frame"
 
             # Add time of day and mood
             time_of_day = scene.get("time_of_day", "")
             mood = scene.get("mood", "")
             
-            # Construct weighted prompt
-            # Base visual (high weight)
-            visual_parts = [f"({visual}:1.3)"]
+            # Construct natural prompt without excessive weighting
+            visual_parts = [visual]
             
-            # Atmospheric lighting (medium weight)
+            # Atmospheric lighting
             lighting = scene.get("atmospheric_lighting", "") or scene.get("lighting", "")
             if lighting:
-                visual_parts.append(f"({lighting}:1.1)")
+                visual_parts.append(f"lighting: {lighting}")
                 
-            # Composition (medium weight)
+            # Composition
             composition = scene.get("composition_notes", "")
             if composition:
-                visual_parts.append(f"({composition}:1.1)")
+                visual_parts.append(composition)
                 
-            # Details (normal weight)
+            # Details
             narrative = scene.get("narrative_detail", "")
             if narrative:
                 visual_parts.append(narrative)
@@ -219,7 +230,7 @@ class SceneExtractor:
             if mood:
                 visual_parts.append(f"{mood} atmosphere")
 
-            # Join all parts
+            # Join all parts naturally
             visual = ", ".join(visual_parts)
 
             # Append style tag

@@ -12,6 +12,7 @@ import queue
 import threading
 import time
 import traceback
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -41,12 +42,15 @@ app = Flask(
 
 DATA_DIR = Path("data")
 UPLOAD_DIR = DATA_DIR / "uploads"
-WEB_RUN_DIR = DATA_DIR / "web_runs"
+# Removed global get_web_run_dir helper. Chapter operations use LibraryManager directly.
 
-# Serve generated files
-@app.route("/runs/<path:filename>")
-def serve_runs(filename):
-    return send_from_directory(WEB_RUN_DIR, filename)
+# Serve generated files from chapter processing
+@app.route("/runs/<path:novel_title>/<path:chapter_id>/<path:filename>")
+def serve_runs(novel_title, chapter_id, filename):
+    from ..core.library_manager import LibraryManager
+    manager = LibraryManager()
+    proc_dir = manager.resolve_chapter_processing_dir(novel_title, chapter_id)
+    return send_from_directory(str(proc_dir.resolve()), filename)
 
 # Global state for SSE progress
 _progress_queues: dict[str, queue.Queue] = {}
@@ -72,7 +76,11 @@ def _get_cached_job(chapter_path: str) -> Optional[dict]:
     key = _chapter_key(chapter_path)
     cached = _scene_cache.get(key)
     if cached:
-        scenes_path = WEB_RUN_DIR / cached["job_id"] / "scenes.json"
+        novel_title = cached.get("novel_title")
+        if not novel_title:
+            novel_title = Path(chapter_path).resolve().parent.parent.name
+        from ..core.library_manager import LibraryManager
+        scenes_path = LibraryManager().resolve_chapter_processing_dir(novel_title, cached["chapter_id"]) / "scenes.json"
         if scenes_path.exists():
             return cached
         # Cache stale, remove
@@ -128,32 +136,70 @@ def upload_novel():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/library/<novel_id>", methods=["GET"])
-def get_novel_details(novel_id):
-    """Get metadata for a specific novel."""
+@app.route("/api/library/<path:novel_title>", methods=["GET"])
+def get_novel_details(novel_title):
+    """Get metadata for a specific novel by title."""
     manager = LibraryManager()
-    novel = manager.get_novel(novel_id)
+    novel = manager.get_novel(novel_title)
     if not novel:
         return jsonify({"error": "Novel not found"}), 404
     return jsonify(novel)
 
 
-@app.route("/api/library/<novel_id>/chapters", methods=["GET"])
-def list_novel_chapters(novel_id):
+@app.route("/api/library/<path:novel_title>/chapters", methods=["GET"])
+def list_novel_chapters(novel_title):
     """List chapters for a novel."""
     manager = LibraryManager()
-    chapters = manager.get_chapters(novel_id)
+    chapters = manager.get_chapters(novel_title)
     return jsonify(chapters)
 
 
-@app.route("/api/library/<novel_id>/chapters/<chapter_id>", methods=["GET"])
-def get_novel_chapter(novel_id, chapter_id):
+@app.route("/api/library/<path:novel_title>/chapters/<chapter_id>", methods=["GET"])
+def get_novel_chapter(novel_title, chapter_id):
     """Get content of a specific chapter."""
     manager = LibraryManager()
-    content = manager.get_chapter_content(novel_id, chapter_id)
+    content = manager.get_chapter_content(novel_title, chapter_id)
     if not content:
         return jsonify({"error": "Chapter not found"}), 404
     return jsonify(content)
+
+
+@app.route("/api/library/<path:novel_title>", methods=["DELETE"])
+def delete_novel(novel_title):
+    """Delete a novel and all its associated data."""
+    manager = LibraryManager()
+    try:
+        success = manager.delete_novel(novel_title)
+        if success:
+            return jsonify({"success": True, "message": "Novel deleted successfully"})
+        else:
+            return jsonify({"error": "Novel not found"}), 404
+    except Exception as e:
+        logger.error("Delete failed: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/library/<path:novel_title>/title", methods=["PUT"])
+def update_novel_title(novel_title):
+    """Update the title of a novel."""
+    manager = LibraryManager()
+    body = request.json or {}
+    new_title = body.get('title', '').strip()
+    
+    if not new_title:
+        return jsonify({"error": "Title is required"}), 400
+    
+    try:
+        updated = manager.update_novel_title(novel_title, new_title)
+        if updated:
+            return jsonify({"success": True, "novel": updated})
+        else:
+            return jsonify({"error": "Novel not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Title update failed: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Chapter Management ────────────────────────────────────────
@@ -220,11 +266,24 @@ def upload_file():
 
 @app.route("/api/extract", methods=["POST"])
 def extract_scenes():
-    """Extract scenes from a chapter with enrichment + voice assignment."""
+    """Extract scenes from a chapter with enrichment + voice assignment.
+    
+    Requires a novel_title to determine the consistency store location.
+    """
     body = request.json or {}
+    novel_title = body.get("novel_title")
     chapter_path = body.get("chapter_path")
     raw_text = body.get("text")
-    force = body.get("force", False)
+    force = body.get("force_extract", body.get("force", False))
+
+    # Novel title is required for consistency store
+    if not novel_title:
+        return jsonify({"error": "novel_title is required"}), 400
+
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(novel_title)
+    if not consistency_dir:
+        return jsonify({"error": f"Novel '{novel_title}' not found"}), 404
 
     # Handle raw text input by saving it as a temporary chapter file
     if raw_text:
@@ -273,12 +332,32 @@ def extract_scenes():
             if "paragraphs" in chapter_data and "content" not in chapter_data:
                 chapter_data["content"] = chapter_data["paragraphs"]
 
-            chapter_id = f"ch{chapter_data['chapter_number']:04d}"
-            chapter_text = "\n".join(chapter_data["content"])
+            # Handle chapter_number that might be string or int
+            ch_num = chapter_data.get("chapter_number", 1)
+            if isinstance(ch_num, str):
+                # Try to extract number from strings like "ch001" or "001"
+                ch_num_str = ''.join(filter(str.isdigit, ch_num))
+                ch_num = int(ch_num_str) if ch_num_str else 1
+            chapter_id = f"ch{int(ch_num):04d}"
+            
+            # FIX: Handle content that might be string or list
+            content = chapter_data.get("content", [])
+            if isinstance(content, str):
+                # Content is a single string - use as-is
+                chapter_text = content
+            elif isinstance(content, list):
+                # Content is a list of paragraphs - join them
+                chapter_text = "\n\n".join(str(p) for p in content)
+            else:
+                chapter_text = str(content)
+            
+            # Debug logging
+            logger.info(f"Chapter content type: {type(content)}, length: {len(chapter_text)} chars")
+            logger.info(f"First 200 chars: {chapter_text[:200]!r}")
 
             _send_progress(job_id, "extracting", 20, "LLM extracting scenes & characters...")
 
-            extractor = SceneExtractor()
+            extractor = SceneExtractor(consistency_dir=consistency_dir)
             response = extractor.extract_scenes(chapter_text, chapter_id=chapter_id)
             scenes = response.get("scenes", [])
 
@@ -290,7 +369,7 @@ def extract_scenes():
             scenes = extractor.enrich_scene_prompts(scenes, chapter_id=chapter_id)
 
             # Save results
-            run_dir = WEB_RUN_DIR / job_id
+            run_dir = manager.resolve_chapter_processing_dir(novel_title, chapter_id)
             run_dir.mkdir(parents=True, exist_ok=True)
             with open(run_dir / "scenes.json", "w", encoding="utf-8") as f:
                 json.dump(scenes, f, indent=2, ensure_ascii=False)
@@ -302,6 +381,7 @@ def extract_scenes():
                 "scenes_count": len(scenes),
                 "chapter_id": chapter_id,
                 "chapter_path": chapter_path,
+                "novel_title": novel_title
             }
 
             char_count = len(store.list_characters())
@@ -344,16 +424,25 @@ def stream_progress(job_id: str):
 # ── Character & Location Data ─────────────────────────────────
 
 
-@app.route("/api/characters", methods=["GET"])
-def get_characters():
-    store = ConsistencyStore()
+@app.route("/api/novels/<path:novel_title>/characters", methods=["GET"])
+def get_characters(novel_title):
+    """Get characters for a specific novel."""
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(novel_title)
+    if not consistency_dir:
+        return jsonify({"error": "Novel not found"}), 404
+    store = ConsistencyStore(consistency_dir)
     return jsonify(store.list_characters())
 
 
-@app.route("/api/characters/<name>", methods=["PUT"])
-def update_character(name: str):
+@app.route("/api/novels/<path:novel_title>/characters/<name>", methods=["PUT"])
+def update_character(novel_title, name: str):
     """Update a character's voice or appearance."""
-    store = ConsistencyStore()
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(novel_title)
+    if not consistency_dir:
+        return jsonify({"error": "Novel not found"}), 404
+    store = ConsistencyStore(consistency_dir)
     chars = store.list_characters()
     if name not in chars:
         return jsonify({"error": "Character not found"}), 404
@@ -367,29 +456,36 @@ def update_character(name: str):
     return jsonify(store.get_character(name))
 
 
-@app.route("/api/locations", methods=["GET"])
-def get_locations():
-    store = ConsistencyStore()
+@app.route("/api/novels/<path:novel_title>/locations", methods=["GET"])
+def get_locations(novel_title):
+    """Get locations for a specific novel."""
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(novel_title)
+    if not consistency_dir:
+        return jsonify({"error": "Novel not found"}), 404
+    store = ConsistencyStore(consistency_dir)
     return jsonify(store.list_locations())
 
 
 # ── Scenes ────────────────────────────────────────────────────
 
 
-@app.route("/api/scenes/<job_id>", methods=["GET"])
-def get_scenes(job_id: str):
-    """Get scenes for a job."""
-    scenes_path = WEB_RUN_DIR / job_id / "scenes.json"
+@app.route("/api/novels/<path:novel_title>/scenes/<chapter_id>", methods=["GET"])
+def get_scenes(novel_title: str, chapter_id: str):
+    """Get scenes for a chapter."""
+    manager = LibraryManager()
+    scenes_path = manager.resolve_chapter_processing_dir(novel_title, chapter_id) / "scenes.json"
     if not scenes_path.exists():
         return jsonify({"error": "No scenes found"}), 404
     with open(scenes_path, "r", encoding="utf-8") as f:
         return jsonify(json.load(f))
 
 
-@app.route("/api/scenes/<job_id>/<int:scene_idx>", methods=["PUT"])
-def update_scene(job_id: str, scene_idx: int):
+@app.route("/api/novels/<path:novel_title>/scenes/<chapter_id>/<int:scene_idx>", methods=["PUT"])
+def update_scene(novel_title: str, chapter_id: str, scene_idx: int):
     """Update a scene's description/narration/dialogues."""
-    scenes_path = WEB_RUN_DIR / job_id / "scenes.json"
+    manager = LibraryManager()
+    scenes_path = manager.resolve_chapter_processing_dir(novel_title, chapter_id) / "scenes.json"
     if not scenes_path.exists():
         return jsonify({"error": "No scenes found"}), 404
 
@@ -452,12 +548,23 @@ def run_pipeline():
     """Run full pipeline (extract → images → audio → video).
 
     Reuses cached scenes if already extracted for this chapter.
+    Requires novel_title for consistency store.
     """
     body = request.json or {}
+    novel_title = body.get("novel_title")
     chapter_path = body.get("chapter_path")
     force_extract = body.get("force_extract", False)
+    
+    if not novel_title:
+        return jsonify({"error": "novel_title is required"}), 400
+    
     if not chapter_path or not Path(chapter_path).exists():
         return jsonify({"error": "Invalid chapter_path"}), 400
+
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(novel_title)
+    if not consistency_dir:
+        return jsonify({"error": f"Novel '{novel_title}' not found"}), 404
 
     job_id = f"pipeline_{int(time.time())}"
     _progress_queues[job_id] = queue.Queue()
@@ -472,12 +579,12 @@ def run_pipeline():
                 _send_progress(job_id, "extracting", 25,
                     f"Reusing cached scenes ({cached['scenes_count']} scenes from {cached['job_id']})")
 
-                scenes_path = WEB_RUN_DIR / cached["job_id"] / "scenes.json"
+                scenes_path = LibraryManager().resolve_chapter_processing_dir(novel_title, cached["chapter_id"]) / "scenes.json"
                 with open(scenes_path, "r", encoding="utf-8") as f:
                     scenes = json.load(f)
 
                 chapter_id = cached.get("chapter_id", "ch0001")
-                store = ConsistencyStore()
+                store = ConsistencyStore(consistency_dir)
             else:
                 _send_progress(job_id, "extracting", 5, "Loading & extracting scenes...")
                 with open(chapter_path, "r", encoding="utf-8") as f:
@@ -488,10 +595,25 @@ def run_pipeline():
                 if "paragraphs" in chapter_data and "content" not in chapter_data:
                     chapter_data["content"] = chapter_data["paragraphs"]
 
-                chapter_id = f"ch{chapter_data['chapter_number']:04d}"
-                chapter_text = "\n".join(chapter_data["content"])
+                # Handle chapter_number that might be string or int
+                ch_num = chapter_data.get("chapter_number", 1)
+                if isinstance(ch_num, str):
+                    ch_num_str = ''.join(filter(str.isdigit, ch_num))
+                    ch_num = int(ch_num_str) if ch_num_str else 1
+                chapter_id = f"ch{int(ch_num):04d}"
+                
+                # FIX: Handle content that might be string or list
+                content = chapter_data.get("content", [])
+                if isinstance(content, str):
+                    chapter_text = content
+                elif isinstance(content, list):
+                    chapter_text = "\n\n".join(str(p) for p in content)
+                else:
+                    chapter_text = str(content)
+                
+                logger.info(f"Pipeline - Chapter content type: {type(content)}, length: {len(chapter_text)} chars")
 
-                extractor = SceneExtractor()
+                extractor = SceneExtractor(consistency_dir=consistency_dir)
                 response = extractor.extract_scenes(chapter_text, chapter_id=chapter_id)
                 scenes = response.get("scenes", [])
 
@@ -502,22 +624,9 @@ def run_pipeline():
                 _send_progress(job_id, "enriching", 30, "Enriching prompts...")
                 scenes = extractor.enrich_scene_prompts(scenes, chapter_id=chapter_id)
 
-                # Cache extracted scenes under a stable directory name
-                extract_dir = WEB_RUN_DIR / f"extract_{_chapter_key(chapter_path)}"
-                extract_dir.mkdir(parents=True, exist_ok=True)
-                with open(extract_dir / "scenes.json", "w", encoding="utf-8") as f:
-                    json.dump(scenes, f, indent=2, ensure_ascii=False)
-
-                cache_key = _chapter_key(chapter_path)
-                _scene_cache[cache_key] = {
-                    "job_id": extract_dir.name,
-                    "scenes_count": len(scenes),
-                    "chapter_id": chapter_id,
-                    "chapter_path": chapter_path,
-                }
-
             # Use a stable output dir based on chapter
-            run_dir = WEB_RUN_DIR / chapter_id
+            manager = LibraryManager()
+            run_dir = manager.resolve_chapter_processing_dir(novel_title, chapter_id)
             run_dir.mkdir(parents=True, exist_ok=True)
 
             # Save scenes in chapter output dir too
@@ -531,7 +640,10 @@ def run_pipeline():
             wangp_path = os.getenv("WANGP_PATH", r"D:\GeneAI\Wan2GP")
             wgp_exists = (Path(wangp_path) / "wgp.py").exists()
 
-            if not wgp_exists:
+            existing_images = list(images_dir.glob("scene_*.png")) + list(images_dir.glob("scene_*.jpg"))
+            if len(existing_images) >= len(scenes):
+                _send_progress(job_id, "images_skip", 60, "Images already exist. Skipping generation.")
+            elif not wgp_exists:
                 _send_progress(job_id, "images_skip", 60,
                     f"Image generation skipped: WanGP not found at {wangp_path}. Set WANGP_PATH in .env")
             else:
@@ -552,24 +664,28 @@ def run_pipeline():
             audio_dir = run_dir / "audio"
             audio_dir.mkdir(exist_ok=True)
             
-            try:
-                from ..tts.manager import TTSManager
-                tts = TTSManager()
-                _send_progress(job_id, "audio", 65, "Generating audio (Qwen3)...")
+            existing_audio = list(audio_dir.glob("scene_*.wav")) + list(audio_dir.glob("scene_*.mp3"))
+            if len(existing_audio) >= len(scenes):
+                _send_progress(job_id, "audio_skip", 85, "Audio already exists. Skipping generation.")
+            else:
+                try:
+                    from ..tts.manager import TTSManager
+                    tts = TTSManager()
+                    _send_progress(job_id, "audio", 65, "Generating audio (Qwen3)...")
 
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                # Use Qwen3 3-pass strategy
-                results = loop.run_until_complete(
-                    tts.generate_chapter_audio(scenes, audio_dir, default_voice="narrator")
-                )
-                loop.close()
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    # Use Qwen3 3-pass strategy
+                    results = loop.run_until_complete(
+                        tts.generate_chapter_audio(scenes, audio_dir, default_voice="narrator")
+                    )
+                    loop.close()
 
-                ok_count = sum(1 for r in results if r)
-                _send_progress(job_id, "audio_done", 85, f"Audio: {ok_count}/{len(scenes)} generated")
-            except Exception as e:
-                _send_progress(job_id, "audio_skip", 85, f"Audio generation error: {e}")
-                logger.error("Audio generation failed:\n%s", traceback.format_exc())
+                    ok_count = sum(1 for r in results if r)
+                    _send_progress(job_id, "audio_done", 85, f"Audio: {ok_count}/{len(scenes)} generated")
+                except Exception as e:
+                    _send_progress(job_id, "audio_skip", 85, f"Audio generation error: {e}")
+                    logger.error("Audio generation failed:\n%s", traceback.format_exc())
 
             # Step 4: Video
             has_images = any(images_dir.glob("*.png")) or any(images_dir.glob("*.jpg"))
@@ -587,8 +703,11 @@ def run_pipeline():
                     _send_progress(job_id, "video", 90, "Composing video...")
                     composer = VideoComposer()
                     video_path = run_dir / f"{chapter_id}.mp4"
-                    composer.create_video(scenes, str(images_dir), str(audio_dir), str(video_path))
-                    _send_progress(job_id, "done", 100, f"Video saved: {video_path}")
+                    success = composer.create_video(scenes, str(images_dir), str(audio_dir), str(video_path))
+                    if success:
+                        _send_progress(job_id, "done", 100, f"Video saved: {video_path}")
+                    else:
+                        _send_progress(job_id, "video_skip", 95, "Video composition failed: Missing scene clips or FFmpeg error.")
                 except Exception as e:
                     _send_progress(job_id, "video_skip", 95, f"Video composition error: {e}")
                     logger.error("Video composition failed:\n%s", traceback.format_exc())
@@ -619,10 +738,11 @@ def run_pipeline():
 # ── Output Files ──────────────────────────────────────────────
 
 
-@app.route("/api/outputs/<chapter_id>", methods=["GET"])
-def list_outputs(chapter_id: str):
+@app.route("/api/novels/<path:novel_title>/outputs/<chapter_id>", methods=["GET"])
+def list_outputs(novel_title: str, chapter_id: str):
     """List output files for a chapter."""
-    run_dir = WEB_RUN_DIR / chapter_id
+    manager = LibraryManager()
+    run_dir = manager.resolve_chapter_processing_dir(novel_title, chapter_id)
     if not run_dir.exists():
         return jsonify({"error": "No output directory found"}), 404
 
@@ -667,13 +787,19 @@ def get_voices():
 def regenerate_audio():
     """Regenerate audio for specific scenes."""
     body = request.json or {}
+    novel_title = body.get("novel_title")
+    chapter_id = body.get("chapter_id")
     job_id = body.get("job_id")
     indices = body.get("scene_indices", []) # List of integers
 
-    if not job_id:
-        return jsonify({"error": "Missing job_id"}), 400
+    if not novel_title:
+        return jsonify({"error": "Missing novel_title"}), 400
 
-    scenes_path = WEB_RUN_DIR / job_id / "scenes.json"
+    if not chapter_id:
+        return jsonify({"error": "Missing chapter_id"}), 400
+
+    manager = LibraryManager()
+    scenes_path = manager.resolve_chapter_processing_dir(novel_title, chapter_id) / "scenes.json"
     if not scenes_path.exists():
         return jsonify({"error": "Job not found"}), 404
 
@@ -702,7 +828,7 @@ def regenerate_audio():
         try:
             _send_progress(regen_job_id, "start", 0, f"Regenerating audio for {len(target_scenes)} scenes...")
             
-            run_dir = WEB_RUN_DIR / job_id
+            run_dir = manager.resolve_chapter_processing_dir(novel_title, chapter_id)
             audio_dir = run_dir / "audio"
             audio_dir.mkdir(parents=True, exist_ok=True)
 
@@ -759,15 +885,28 @@ def regenerate_audio():
 
 @app.route("/api/generate/image", methods=["POST"])
 def regenerate_image():
-    """Regenerate images for specific scenes."""
+    """Regenerate images for specific scenes.
+    
+    Requires novel_title for consistency store.
+    """
     body = request.json or {}
+    novel_title = body.get("novel_title")
+    chapter_id = body.get("chapter_id")
     job_id = body.get("job_id")
     indices = body.get("scene_indices", [])
 
-    if not job_id:
-        return jsonify({"error": "Missing job_id"}), 400
+    if not novel_title:
+        return jsonify({"error": "novel_title is required"}), 400
+    
+    if not chapter_id:
+        return jsonify({"error": "Missing chapter_id"}), 400
 
-    scenes_path = WEB_RUN_DIR / job_id / "scenes.json"
+    manager = LibraryManager()
+    consistency_dir = manager.get_consistency_dir(novel_title)
+    if not consistency_dir:
+        return jsonify({"error": f"Novel '{novel_title}' not found"}), 404
+
+    scenes_path = manager.resolve_chapter_processing_dir(novel_title, chapter_id) / "scenes.json"
     if not scenes_path.exists():
         return jsonify({"error": "Job not found"}), 404
 
@@ -790,12 +929,12 @@ def regenerate_image():
         try:
             _send_progress(regen_job_id, "start", 0, f"Regenerating images for {len(target_tasks)} scenes...")
             
-            run_dir = WEB_RUN_DIR / job_id
+            run_dir = manager.resolve_chapter_processing_dir(novel_title, chapter_id)
             images_dir = run_dir / "images"
             images_dir.mkdir(parents=True, exist_ok=True)
             
             from ..consistency.store import ConsistencyStore
-            store = ConsistencyStore()
+            store = ConsistencyStore(consistency_dir)
             
             # Check for Image Generator
             wangp_path = os.getenv("WANGP_PATH", r"D:\GeneAI\Wan2GP")

@@ -1,89 +1,50 @@
-# Implementation Plan: Novel Video Generator Overhaul
+# Phase 1: Planning for Novel Video Generator Fixes
 
-## Overview
-This plan outlines the transition to Qwen3 TTS, improved context-aware image prompting, and a new "Pipeline View" for manual review and editing.
+This document outlines the systematic plan to address the 6 reported issues regarding storage paths, UI features, frontend progress tracking, image prompts, and API bugs.
 
----
+## Issue 1: Storage Locations (`web_runs`)
+**Problem**: Output runs and extracted scenes are stored globally in `data/web_runs` instead of inside each novel's specific folder.
+**Solution**:
+1. Modify `src/web/web_server.py` to stop using a global `WEB_RUN_DIR`.
+2. Determine `WEB_RUN_DIR` dynamically based on the current novel: `manager.get_novel_dir(novel_title) / "web_runs"`.
+3. Update the `serve_runs` route to accept the novel title: `@app.route("/runs/<path:novel_title>/<path:filename>")`.
+4. Update frontend `app.js` to ensure the image `src` uses the new novel-specific URL structure.
 
-## Phase 1: Database & Schema
-**Goal:** Enable persistent voice design for characters.
+## Issue 2: Rename Novels
+**Problem**: The "Edit Title" feature exists in the frontend but fails or isn't completely functional in the backend.
+**Solution**:
+1. Implement or fix `update_novel_title(old_title, new_title)` within `src/core/library_manager.py`. It should safely rename the inner files (like `metadata.json`) and gracefully rename the folder if appropriate.
+2. Ensure the UI gracefully reloads the library list to reflect the updated title without throwing errors.
 
-1.  **Update `ConsistencyStore` Schema**:
-    *   Add `voice_design_params: Dict[str, Any]` to `_CHARACTER_SCHEMA`. This will store the output of the `voicedesign` process (weights, tags, etc.).
-    *   Add `voice_is_designed: bool` flag to track if we need to run the design pass for this character.
-2.  **Migration**:
-    *   Update `upsert_characters` to preserve these new fields during chapter transitions.
+## Issue 3: Loading Animations & Working State
+**Problem**: Clicking the play button or generation buttons leaves the user waiting with no real feedback, even though the backend is sending Server-Sent Events (SSE) with progress details.
+**Solution**:
+1. Enhance the UI in `src/web/static/index.html` and `app.js` to display the active SSE details.
+2. Introduce a clear, visible progress overlay or inline terminal-like text box that displays the `msg.detail` string from the SSE stream so the user knows exactly which scene/step is processing.
 
----
+## Issue 4: Image Generation Prompt Complexity
+**Problem**: The generated `visual_description` describes multiple scenes or sequences, confusing the image generator.
+**Solution**:
+1. Update the `user_template` prompt in `src/parser/openrouter_parser.py`.
+2. Add strict instructions: *"visual_description must describe ONE single static snapshot in time. Do not describe character movements, changing actions, or multiple sequential events in this field."*
 
-## Phase 2: Prompt Engineering
-**Goal:** Generate more descriptive, story-aware image prompts.
+## Issue 5: Image Output Display in Panel
+**Problem**: After an image is generated, the panel does not automatically update with the new image.
+**Solution**:
+1. Verify `refreshImage(idx)` logic in `app.js`.
+2. Fix the `img.src` URL to match the newly updated (Issue 1) `/runs/<novel_title>/...` path.
+3. Ensure the UI element removes any `display: none` restrictions immediately after the image fully loads.
 
-1.  **Context Injection**:
-    *   Modify `OpenRouterParser.extract_scenes` to include a summary of the previous chapter/scene in the system prompt.
-2.  **Visual Enrichment**:
-    *   Update the Scene extraction schema to explicitly request:
-        *   `atmospheric_lighting`: Description of light and shadow.
-        *   `composition_notes`: Camera angle and framing (close-up, wide, etc.).
-        *   `narrative_detail`: Small story-specific visual cues.
-3.  **Output Format**:
-    *   Refine the `visual_description` field to be a weighted prompt (e.g., "(detailed face:1.2), cinematic lighting,...").
-
----
-
-## Phase 3: Qwen3 TTS Engine
-**Goal:** Implement the "Batch-by-Model" optimization for Qwen3.
-
-1.  **Refactor `TTSManager`**:
-    *   Implement `generate_chapter_audio(scenes: List[Scene])`.
-    *   **Pass 1: Narrator**:
-        *   Extract all narrative segments.
-        *   Load `qwen3_tts_customvoice`.
-        *   Generate using `alt_prompt` derived from scene mood.
-    *   **Pass 2: Design**:
-        *   Identify characters with `voice_is_designed = False`.
-        *   Load `qwen3_tts_voicedesign`.
-        *   Generate voice samples and save parameters to `ConsistencyStore`.
-    *   **Pass 3: Dialogue**:
-        *   Load `qwen3_tts_base`.
-        *   For each character, use their `voice_design_params` as the reference for cloning dialogue.
-        *   Map `prosody` from scene text to the `alt_prompt` field.
-2.  **CLI Wrapper**:
-    *   Update `src/tts/provider.py` to interface with `wgp.py --process` using the JSON templates provided.
+## Issue 6: "Error Loading Characters"
+**Problem**: The "The Voice" tab tries to load `/api/characters` and fails with an HTML error because the endpoint doesn't exist.
+**Solution**:
+1. Fix the `fetch` request in `loadCharacters()` inside `src/web/static/app.js`.
+2. Update it to call the correct endpoint: `/api/novels/${encodeURIComponent(state.currentNovelTitle)}/characters`.
 
 ---
 
-## Phase 4: Backend API
-**Goal:** Support the Review/Edit workflow.
-
-1.  **New Endpoints**:
-    *   `POST /api/scenes/<id>/regenerate-image`: Async trigger for image generation for a specific scene.
-    *   `POST /api/scenes/<id>/regenerate-audio`: Async trigger for TTS for a specific segment.
-    *   `PUT /api/scenes/<id>`: Update scene text/prompts manually.
-2.  **Pipeline State Tracking**:
-    *   Add a `status` field to scenes (Pending, Review, Generated).
-
----
-
-## Phase 5: Frontend Overhaul
-**Goal:** Provide a "Pipeline View" and integrated player.
-
-1.  **Pipeline Review Tab**:
-    *   Display a vertical timeline of scenes.
-    *   Each scene shows:
-        *   Generated Image (with click-to-enlarge).
-        *   Editable Visual Prompt.
-        *   Editable Dialog/Narrative text.
-        *   "Regenerate" buttons for visual/audio.
-2.  **Video Player**:
-    *   Add an `<audio>` preview for individual scenes.
-    *   Add a final `<video>` player in the "Generation" tab that points to the latest `/output/final.mp4`.
-
----
-
-## Phase 6: Verification
-**Goal:** Ensure quality and performance.
-
-1.  **Voice Consistency Test**: Generate two chapters featuring the same character and verify the voice signature remains identical.
-2.  **Prompt Quality Check**: Compare old vs. new visual prompts for descriptiveness.
-3.  **Model Loading Benchmark**: Verify that the 3-pass batch approach is faster than the scene-by-scene approach (fewer model swaps).
+## Agent Allocation for Phase 2 implementation
+Following the orchestration protocol, once approved, three agents will be deployed to implement this plan in parallel:
+- **`backend-specialist`**: Fix `library_manager.py` remaining logic, update `web_server.py` directory structures, and refine the `openrouter_parser.py` prompt.
+- **`frontend-specialist`**: Fix the image URLs, progress streaming UI overlays, and correct the characters fetch API route in `app.js` and `index.html`.
+- **`test-engineer`**: Run the Python validations and `eslint`/health checks to ensure everything ties together without breaking.

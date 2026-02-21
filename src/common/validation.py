@@ -43,16 +43,23 @@ def validate_chapter(chapter_data: Dict[str, Any]) -> None:
     else:
         raise ValidationError("Missing required field: content or paragraphs")
     
-    if not isinstance(content, list):
-        raise ValidationError("'content' or 'paragraphs' must be a list")
-
-    if len(content) == 0:
-        raise ValidationError("Chapter content is empty")
-
-    logger.info(
-        f"Validated chapter {chapter_num}: "
-        f"{len(content)} paragraphs"
-    )
+    # Accept both string and list formats
+    if isinstance(content, str):
+        if len(content.strip()) == 0:
+            raise ValidationError("Chapter content is empty")
+        logger.info(
+            f"Validated chapter {chapter_num}: "
+            f"{len(content.split())} words"
+        )
+    elif isinstance(content, list):
+        if len(content) == 0:
+            raise ValidationError("Chapter content is empty")
+        logger.info(
+            f"Validated chapter {chapter_num}: "
+            f"{len(content)} paragraphs"
+        )
+    else:
+        raise ValidationError("'content' or 'paragraphs' must be a string or list")
 
 
 def validate_scenes(scenes_data: List[Dict[str, Any]]) -> None:
@@ -71,18 +78,15 @@ def validate_scenes(scenes_data: List[Dict[str, Any]]) -> None:
     if len(scenes_data) == 0:
         raise ValidationError("Scenes list is empty")
 
-    required_common_fields = [
-        "visual_description",
-        "characters",
-        "estimated_duration",
-    ]
-
     for i, scene in enumerate(scenes_data):
-        for field in required_common_fields:
-            if field not in scene:
-                raise ValidationError(
-                    f"Scene {i} missing required field: {field}"
-                )
+        if "visual_description" not in scene:
+            raise ValidationError(
+                f"Scene {i} missing required field: visual_description"
+            )
+
+        if "characters" not in scene:
+            logger.warning("Scene %d missing characters field, defaulting to empty list.", i)
+            scene["characters"] = []
 
         # Check for content: either 'sequence' (new) or 'text_segment'/'narration' (legacy)
         has_content = (
@@ -91,7 +95,8 @@ def validate_scenes(scenes_data: List[Dict[str, Any]]) -> None:
             or "narration" in scene
         )
         if not has_content:
-             raise ValidationError(f"Scene {i} missing content field ('sequence', 'text_segment', or 'narration')")
+             logger.warning("Scene %d missing content field, defaulting to empty sequence.", i)
+             scene["sequence"] = []
 
         if not isinstance(scene['characters'], list):
             raise ValidationError(

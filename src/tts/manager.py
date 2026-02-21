@@ -46,12 +46,22 @@ def _generate_silence_wav(duration_seconds: float, output_path: Path) -> None:
 class TTSManager:
     """Manages TTS using Qwen3 Multi-Pass strategy."""
 
-    def __init__(self, config_path: Optional[Path] = None):
-        self.store = ConsistencyStore()
+    def __init__(self, base_dir: Optional[Path] = None, config_path: Optional[Path] = None):
+        """Initialize TTSManager.
+        
+        Args:
+            base_dir: Path to the consistency store directory. If not provided,
+                      uses default path data/consistency/.
+            config_path: Optional path to config file (unused, kept for compatibility).
+        """
+        # Use default consistency directory if not provided
+        if base_dir is None:
+            base_dir = get_project_root() / ".consistency"
+        self.store = ConsistencyStore(base_dir)
         
         # Initialize Qwen3 Engine
         try:
-            qwen_out = get_project_root() / "data" / "cache" / "qwen3_raw"
+            qwen_out = get_project_root() / ".cache" / "qwen3_raw"
             self.qwen3_engine = Qwen3Engine(qwen_out)
             logger.info("Qwen3 Engine initialized")
         except Exception as e:
@@ -60,24 +70,23 @@ class TTSManager:
 
     @staticmethod
     def _concatenate_files(files: List[Path], output_path: Path) -> Optional[str]:
-        """Concatenate WAV files using ffmpeg."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            for fp in files:
-                f.write(f"file '{fp.as_posix()}'\\n")
-            concat_file = Path(f.name)
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(concat_file),
-            "-c", "copy",
-            str(output_path),
-        ]
+        """Concatenate WAV files using ffmpeg filter_complex to handle mismatched sample rates."""
+        cmd = ["ffmpeg", "-y"]
+        filter_str = ""
+        
+        # Add all inputs
+        for i, fp in enumerate(files):
+            cmd.extend(["-i", str(fp)])
+            filter_str += f"[{i}:a]"
+            
+        # Add filter complex
+        filter_str += f"concat=n={len(files)}:v=0:a=1[outa]"
+        cmd.extend(["-filter_complex", filter_str, "-map", "[outa]", str(output_path)])
+        
         result = subprocess.run(cmd, capture_output=True, text=True)
-        concat_file.unlink(missing_ok=True)
 
         if result.returncode != 0:
-            logger.error("FFmpeg concat error: %s", result.stderr[-300:])
+            logger.error("FFmpeg filter_complex concat error: %s", result.stderr[-300:])
             return None
 
         logger.info("Concatenated %d segments -> %s", len(files), output_path)

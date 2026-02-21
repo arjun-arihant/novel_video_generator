@@ -13,10 +13,24 @@ venv/
 .idea/
 
 # Data Storage Strategy
+# Ignore all data content except .gitkeep files
 data/*
-!data/
-!data/YOUR_DATA_IS_STORED_HERE.txt
+!data/.gitkeep
+!data/uploads/
+!data/uploads/.gitkeep
 
 # Generated Outputs (Legacy)
 output/
 runs/
+
+# Runtime Caches & Debug Files
+.cache/
+.consistency/
+err.txt
+out.txt
+files.txt
+test_concat.py
+test_qwen.py
+test_cmd.py
+*.txt
+!requirements.txt

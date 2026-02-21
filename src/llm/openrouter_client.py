@@ -12,38 +12,7 @@ from ..common import get_config
 logger = logging.getLogger(__name__)
 
 
-def _repair_json(raw: str) -> str:
-    """Best-effort repair of common LLM JSON issues."""
-    text = raw.strip()
-
-    # Strip markdown fences
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*\n?", "", text)
-        text = re.sub(r"\n?```\s*$", "", text)
-
-    # Remove trailing commas before } or ]
-    text = re.sub(r",\s*([}\]])", r"\1", text)
-
-    # If truncated (doesn't end with } or ]), try to close it
-    if not text.rstrip().endswith(("}", "]")):
-        open_braces = text.count("{") - text.count("}")
-        open_brackets = text.count("[") - text.count("]")
-
-        # Trim back to last complete item
-        last_complete = max(text.rfind("}"), text.rfind("]"))
-        if last_complete > 0:
-            text = text[: last_complete + 1]
-            # Recount after trim
-            open_braces = text.count("{") - text.count("}")
-            open_brackets = text.count("[") - text.count("]")
-
-        # Close remaining open brackets/braces
-        text += "]" * open_brackets + "}" * open_braces
-
-    # Final cleanup: trailing commas that may have appeared after truncation repair
-    text = re.sub(r",\s*([}\]])", r"\1", text)
-
-    return text
+import json_repair
 
 
 class OpenRouterClient:
@@ -88,8 +57,16 @@ class OpenRouterClient:
             timeout=self.timeout,
         )
         if response.status_code != 200:
+            error_text = response.text[:1000]
+            # Check for content moderation block
+            if "content_filter" in error_text or "Moderation" in error_text:
+                raise RuntimeError(
+                    f"Content blocked by moderation filter. "
+                    f"The text may be malformed or contain sensitive content. "
+                    f"Error: {error_text[:300]}"
+                )
             raise RuntimeError(
-                f"OpenRouter error {response.status_code}: {response.text[:500]}"
+                f"OpenRouter error {response.status_code}: {error_text}"
             )
         data = response.json()
         content = data["choices"][0]["message"]["content"]
@@ -103,10 +80,13 @@ class OpenRouterClient:
             return json.loads(content)
         except json.JSONDecodeError:
             logger.warning("JSON parse failed, attempting repair...")
-            repaired = _repair_json(content)
             try:
-                return json.loads(repaired)
-            except json.JSONDecodeError as e:
+                # json_repair fixes missing quotes, trailing commas, and unescaped characters 
+                repaired_obj = json_repair.loads(content)
+                if not isinstance(repaired_obj, dict):
+                    raise ValueError(f"Repair succeeded but returned {type(repaired_obj)}, expected dict")
+                return repaired_obj
+            except Exception as e:
                 logger.error("JSON repair also failed: %s", e)
                 logger.debug("Raw content (first 500 chars): %s", content[:500])
                 raise

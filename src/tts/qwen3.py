@@ -52,20 +52,34 @@ class Qwen3Engine:
         with open(batch_file, "w", encoding="utf-8") as f:
             json.dump(tasks, f, indent=2)
 
-        cmd = [
-            "conda",
-            "run",
-            "-n",
-            self.env_name,
-            "python",
-            str(self.wrapper_path),
-            "--batch",
-            str(batch_file),
-            "--output-dir",
-            str(batch_out_dir),
-        ]
+        # Resolve conda path
+        conda_activate = os.getenv("CONDA_ACTIVATE_PATH")
+        
+        if conda_activate and Path(conda_activate).exists():
+            conda_base = Path(conda_activate).parent.parent
+            condabin = conda_base / "condabin"
+            
+            # Method 1: Explicit activation script (Most robust on Windows)
+            cmd = (
+                f'set "PATH={condabin};%PATH%" && '
+                f'call "{conda_activate}" {self.env_name} && '
+                f'python "{self.wrapper_path}" '
+                f'--batch "{batch_file}" '
+                f'--output-dir "{batch_out_dir}"'
+            )
+        else:
+            # Method 2: Fallback to basic 'conda run'
+            cmd = (
+                f'conda run -n {self.env_name} '
+                f'python "{self.wrapper_path}" '
+                f'--batch "{batch_file}" '
+                f'--output-dir "{batch_out_dir}"'
+            )
 
         logger.info(f"Running batch {batch_name} with {len(tasks)} tasks in {batch_out_dir}")
+        logger.error(f"[DEBUG] conda_activate: {conda_activate}, exists: {Path(conda_activate).exists() if conda_activate else False}")
+        logger.error(f"[DEBUG] Executing cmd: {cmd}")
+        
         try:
             subprocess.run(
                 cmd,
@@ -73,7 +87,8 @@ class Qwen3Engine:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=self.project_root
+                cwd=self.project_root,
+                shell=True
             )
         except subprocess.CalledProcessError as e:
             logger.error(f"Batch {batch_name} failed: {e.stderr}")
@@ -152,9 +167,9 @@ class Qwen3Engine:
                 params["alt_prompt"] = dlg["mood"]
                 
              # For cloning, we need to pass the reference audio path.
-             # Assuming 'audio_source' is the field WanGP uses for cloning input.
+             # 'audio_guide' is the exact field WanGP uses for cloning input.
             if dlg.get("voice_sample_path"):
-                 params["audio_source"] = str(dlg["voice_sample_path"])
+                 params["audio_guide"] = str(dlg["voice_sample_path"])
              
             tasks.append({
                 "id": f"dialogue_{i}",

@@ -16,7 +16,12 @@ original_cwd = os.getcwd()
 os.chdir(WANGP_ROOT)
 
 try:
+    # wgp eagerly parses sys.argv on import at the module level!
+    # We must mask sys.argv so it doesn't crash on our custom wrapper arguments like --batch
+    original_argv = sys.argv[:]
+    sys.argv = [sys.argv[0]]
     import wgp
+    sys.argv = original_argv
 except ImportError:
     print(f"[ERROR] Could not import 'wgp' from {WANGP_ROOT}. Check paths.")
     sys.exit(1)

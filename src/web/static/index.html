@@ -5,22 +5,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Novel Studio | Aurora</title>
+
   <!-- Fonts -->
   <link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&display=swap" rel="stylesheet">
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
+
   <!-- Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Styles -->
   <link rel="stylesheet" href="static/style.css">
 </head>
 
 <body>
   <div class="app-container">
-    <!-- Sidebar -->
+    <!-- Sidebar Navigation -->
     <nav class="sidebar">
       <div class="brand">
-        <div class="brand-logo"></div>
+        <div class="brand-logo">
+          <i data-lucide="sparkles" style="width: 20px; height: 20px;"></i>
+        </div>
         <div class="brand-text">Novel Studio</div>
       </div>
 
@@ -41,13 +47,9 @@
           <i data-lucide="hammer" class="nav-icon"></i>
           <span>The Forge</span>
         </div>
-        <div class="nav-step" data-step="5" onclick="switchStep(5)">
-          <i data-lucide="film" class="nav-icon"></i>
-          <span>The Cinema</span>
-        </div>
       </div>
 
-      <div style="margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
+      <div class="sidebar-footer">
         <div class="status-badge pending" id="sys-status">
           <span class="status-dot"></span> System Ready
         </div>
@@ -56,162 +58,230 @@
 
     <!-- Main Workspace -->
     <main class="workspace">
+      <div class="workspace-content">
 
-      <!-- Step 1: The Library -->
-      <div id="step-1" class="step-container active">
-        <div class="aurora-card">
-          <div class="step-header">
-            <h2 class="step-title">The Library</h2>
-            <p class="step-desc">Manage your novels. Upload EPUBs or select an existing story to ignite.</p>
-          </div>
-
-          <!-- Tabs -->
-          <div class="tabs-header">
-            <button class="tab-btn active" id="btn-tab-lib" onclick="switchLibraryTab('lib')">My Novels</button>
-            <button class="tab-btn" id="btn-tab-raw" onclick="switchLibraryTab('raw')">Quick Paste</button>
-          </div>
-
-          <!-- Library Tab -->
-          <div id="tab-library" style="display: block;">
-            <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-              <input type="file" id="epub-upload" accept=".epub" style="display: none;"
-                onchange="handleEpubUpload(this)">
-              <button class="btn-primary" onclick="document.getElementById('epub-upload').click()">
-                <i data-lucide="upload"></i> Upload EPUB
-              </button>
+        <!-- Step 1: The Library -->
+        <section id="step-1" class="step-container active">
+          <div class="aurora-card" style="padding: 2rem;">
+            <div class="step-header">
+              <h2 class="step-title">The Library</h2>
+              <p class="step-desc">Manage your novels. Upload EPUBs or select an existing story to transform into
+                cinematic video.</p>
             </div>
 
-            <div id="novel-grid" class="novel-grid">
-              <!-- Novels injected here -->
-              <p style="text-align: center; color: var(--text-muted); grid-column: 1/-1;">Loading library...</p>
+            <!-- Tabs -->
+            <div class="tabs-header">
+              <button class="tab-btn active" id="btn-tab-lib" onclick="switchLibraryTab('lib')">My Novels</button>
+              <button class="tab-btn" id="btn-tab-raw" onclick="switchLibraryTab('raw')">Quick Paste</button>
             </div>
 
-            <div id="chapter-list-container"
-              style="display: none; margin-top: 2rem; border-top: 1px solid var(--border-glass); padding-top: 2rem;">
-              <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-                <button class="btn-secondary" onclick="closeChapterList()">
-                  <i data-lucide="arrow-left"></i> Back
+            <!-- Library Tab -->
+            <div id="tab-library" style="display: block;">
+              <div style="display: flex; justify-content: flex-end; margin-bottom: 1.5rem;">
+                <input type="file" id="epub-upload" accept=".epub" style="display: none;"
+                  onchange="handleEpubUpload(this)">
+                <button class="btn-primary" onclick="document.getElementById('epub-upload').click()">
+                  <i data-lucide="upload" style="width: 16px; height: 16px;"></i>
+                  Upload EPUB
                 </button>
-                <h3 id="selected-novel-title" style="margin: 0;">Novel Title</h3>
               </div>
-              <div id="chapter-list" class="chapter-list"
-                style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto;">
-                <!-- Chapters injected here -->
+
+              <div id="novel-grid" class="novel-grid">
+                <!-- Novels injected here -->
+                <div class="empty-state" style="grid-column: 1/-1;">
+                  <i data-lucide="book-open" style="width: 48px; height: 48px;"></i>
+                  <div class="empty-state-title">Loading Library...</div>
+                  <p>Please wait while we fetch your collection</p>
+                </div>
+              </div>
+
+              <div id="chapter-list-container" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                  <button class="btn-secondary" onclick="closeChapterList()">
+                    <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+                    Back to Library
+                  </button>
+                  <h3 id="selected-novel-title" style="margin: 0; font-size: var(--text-xl);">Novel Title</h3>
+                </div>
+                <div id="chapter-list" class="chapter-list">
+                  <!-- Chapters injected here -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Raw Input Tab -->
+            <div id="tab-raw" style="display: none;">
+              <textarea id="raw-text-input" rows="12"
+                placeholder="Paste your story text here... The AI will extract scenes, characters, and dialogue to create a cinematic experience."></textarea>
+              <div class="mt-6" style="display: flex; gap: 1rem;">
+                <button class="btn-primary" onclick="startExtraction()">
+                  <i data-lucide="zap" style="width: 16px; height: 16px;"></i>
+                  Ignite Engine
+                </button>
               </div>
             </div>
           </div>
+        </section>
 
-          <!-- Raw Input Tab -->
-          <div id="tab-raw" style="display: none;">
-            <textarea id="raw-text-input" rows="15" placeholder="Paste your story text here..."></textarea>
-            <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-              <button class="btn-primary" onclick="startExtraction()">
-                <i data-lucide="zap"></i> Ignite Engine
+        <!-- Step 2: The Vision -->
+        <section id="step-2" class="step-container">
+          <div class="aurora-card" style="padding: 2rem;">
+            <div class="step-header"
+              style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h2 class="step-title">The Vision</h2>
+                <p class="step-desc">Review and refine the extracted scenes. You are the director—shape how each moment
+                  comes to life.</p>
+              </div>
+              <div style="display: flex; gap: 0.75rem;">
+                <button class="btn-secondary" onclick="redoExtraction()" id="btn-redo-extraction">
+                  <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+                  Redo Extraction
+                </button>
+                <button class="btn-secondary" onclick="generateAllImages()">
+                  <i data-lucide="image" style="width: 16px; height: 16px;"></i>
+                  Generate All Images
+                </button>
+                <button class="btn-primary" onclick="switchStep(3)">
+                  Next: Casting
+                  <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>
+                </button>
+              </div>
+            </div>
+
+            <div id="scenes-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
+              <!-- Scenes injected here -->
+              <div class="empty-state">
+                <i data-lucide="loader-2" class="animate-spin" style="width: 40px; height: 40px;"></i>
+                <div class="empty-state-title">Waiting for Extraction</div>
+                <p>Select a chapter from the library to begin scene extraction</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 3: The Voice -->
+        <section id="step-3" class="step-container">
+          <div class="aurora-card" style="padding: 2rem;">
+            <div class="step-header"
+              style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h2 class="step-title">The Voice</h2>
+                <p class="step-desc">Cast your characters. Assign unique voices to bring each personality to life
+                  through narration and dialogue.</p>
+              </div>
+              <div style="display: flex; gap: 0.75rem;">
+                <button class="btn-secondary" onclick="generateAllAudio()">
+                  <i data-lucide="mic-2" style="width: 16px; height: 16px;"></i>
+                  Generate All Audio
+                </button>
+              </div>
+            </div>
+
+            <div id="characters-container"
+              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.25rem;">
+              <!-- Characters injected here -->
+              <div class="empty-state" style="grid-column: 1/-1;">
+                <i data-lucide="users" style="width: 48px; height: 48px;"></i>
+                <div class="empty-state-title">No Characters Found</div>
+                <p>Characters will appear here after scene extraction</p>
+              </div>
+            </div>
+
+            <div class="mt-6" style="text-align: right;">
+              <button class="btn-primary" onclick="switchStep(4)">
+                Next: Production
+                <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>
               </button>
             </div>
           </div>
+        </section>
 
-        </div>
-      </div>
-
-      <!-- Step 2: The Vision -->
-      <div id="step-2" class="step-container">
-        <div class="aurora-card">
-          <div class="step-header" style="display: flex; justify-content: space-between; align-items: start;">
-            <div>
-              <h2 class="step-title">The Vision</h2>
-              <p class="step-desc">Review and refine the extracted scenes. You are the director.</p>
+        <!-- Step 4: The Forge -->
+        <section id="step-4" class="step-container">
+          <div class="aurora-card" style="padding: 2rem;">
+            <div class="step-header">
+              <h2 class="step-title">The Forge</h2>
+              <p class="step-desc">The production pipeline is running. Watch in real-time as images, audio, and video
+                are forged into your masterpiece.</p>
             </div>
-            <div style="display: flex; gap: 1rem;">
-              <button class="btn-secondary" onclick="generateAllImages()">
-                <i data-lucide="image"></i> Generate All Images
+
+            <div class="terminal" id="terminal-output">
+              <div class="terminal-line">
+                <span class="terminal-timestamp">[System]</span>
+                <span class="terminal-info">Aurora Pipeline initialized...</span>
+              </div>
+              <div class="terminal-line">
+                <span class="terminal-timestamp">[System]</span>
+                Waiting for job...
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-bottom: 2rem;">
+              <button class="btn-primary" onclick="runFullPipeline()" id="btn-start-production">
+                <i data-lucide="play" style="width: 16px; height: 16px;"></i>
+                Start Production
               </button>
-              <button class="btn-primary" onclick="switchStep(3)">
-                Next: Casting <i data-lucide="arrow-right"></i>
+            </div>
+
+            <div class="video-container" id="final-video-container"
+              style="display: none; border-top: 1px solid var(--border); padding-top: 2rem;">
+              <div class="empty-state" style="border: none;">
+                <i data-lucide="film" style="width: 64px; height: 64px;"></i>
+                <div class="empty-state-title">No Video Available</div>
+                <p>Complete the production pipeline to view your video here</p>
+              </div>
+            </div>
+
+            <div class="mt-6" style="display: flex; justify-content: center; gap: 1rem;">
+              <button class="btn-secondary" onclick="switchStep(1)">
+                <i data-lucide="library" style="width: 16px; height: 16px;"></i>
+                Back to Library
+              </button>
+              <button class="btn-primary" id="btn-download" style="display: none;">
+                <i data-lucide="download" style="width: 16px; height: 16px;"></i>
+                Download Video
               </button>
             </div>
           </div>
+        </section>
 
-          <div id="scenes-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
-            <!-- Scenes injected here -->
-            <div style="text-align: center; padding: 4rem; color: var(--text-muted);">
-              <i data-lucide="loader-2" style="animation: spin 1s linear infinite; width: 32px; height: 32px;"></i>
-              <p style="margin-top: 1rem;">Waiting for extraction...</p>
-            </div>
-          </div>
-        </div>
       </div>
-
-      <!-- Step 3: The Voice -->
-      <div id="step-3" class="step-container">
-        <div class="aurora-card">
-          <div class="step-header">
-            <h2 class="step-title">The Voice</h2>
-            <p class="step-desc">Cast your characters. Assign voices to bring them to life.</p>
-          </div>
-
-          <div id="characters-container"
-            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem;">
-            <!-- Characters injected here -->
-          </div>
-
-          <div style="margin-top: 2rem; text-align: right;">
-            <button class="btn-primary" onclick="switchStep(4)">
-              Next: Production <i data-lucide="arrow-right"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Step 4: The Forge -->
-      <div id="step-4" class="step-container">
-        <div class="aurora-card">
-          <div class="step-header">
-            <h2 class="step-title">The Forge</h2>
-            <p class="step-desc">The production pipeline is running. Generating assets...</p>
-          </div>
-
-          <div id="terminal-output" style="
-                        background: #000; 
-                        color: #0f0; 
-                        font-family: 'JetBrains Mono', monospace; 
-                        padding: 1.5rem; 
-                        border-radius: 0.5rem; 
-                        height: 400px; 
-                        overflow-y: auto;
-                        margin-bottom: 2rem;
-                        border: 1px solid #333;
-                        font-size: 0.9rem;
-                        line-height: 1.5;
-                    ">
-            > System Initialized...<br>
-            > Waiting for job...
-          </div>
-
-          <button class="btn-primary" onclick="runFullPipeline()" id="btn-start-production">
-            <i data-lucide="play"></i> Start Production
-          </button>
-        </div>
-      </div>
-
-      <!-- Step 5: The Cinema -->
-      <div id="step-5" class="step-container">
-        <div class="aurora-card">
-          <div class="step-header">
-            <h2 class="step-title">The Cinema</h2>
-            <p class="step-desc">Your masterpiece is ready.</p>
-          </div>
-
-          <div id="final-video-container"
-            style="background: black; aspect-ratio: 16/9; border-radius: 1rem; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--border-subtle);">
-            <p style="color: #666;">Video Player Placeholder</p>
-          </div>
-        </div>
-      </div>
-
     </main>
   </div>
 
+  <!-- Edit Title Modal -->
+  <div id="edit-title-modal"
+    style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="aurora-card" style="width: 90%; max-width: 480px; padding: 1.5rem; margin: 1rem;">
+      <h3 style="margin-bottom: 1rem; font-size: var(--text-xl);">Edit Novel Title</h3>
+      <input type="text" id="edit-title-input" class="aurora-input" placeholder="Enter new title..."
+        style="margin-bottom: 1.5rem;">
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+        <button class="btn-secondary" onclick="closeEditTitleModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveNovelTitle()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Loading Overlay -->
+  <div id="global-loading-overlay"
+    style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(12px); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; color: white;">
+    <i data-lucide="loader-2" class="animate-spin" style="width: 64px; height: 64px; color: var(--primary);"></i>
+    <h2 id="loading-title" style="margin-top: 2rem; font-size: var(--text-2xl); font-weight: 600;">Igniting Aurora
+      Engine...</h2>
+    <p id="loading-detail"
+      style="margin-top: 1rem; color: var(--text-dim); font-size: var(--text-base); text-align: center; max-width: 80%;">
+      Initializing systems</p>
+    <div
+      style="width: 320px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; margin-top: 2.5rem; overflow: hidden; box-shadow: 0 0 20px rgba(124, 58, 237, 0.2);">
+      <div id="loading-progress-bar"
+        style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--primary), #a78bfa); transition: width 0.4s ease;">
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
   <script src="static/app.js"></script>
   <script>
     // Initialize Lucide icons

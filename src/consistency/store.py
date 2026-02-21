@@ -55,10 +55,23 @@ _LOCATION_SCHEMA = {
 
 
 class ConsistencyStore:
-    """Persist rich character and location data for consistent generation."""
+    """Persist rich character and location data for consistent generation.
+    
+    Each novel has its own ConsistencyStore instance with a novel-specific base_dir.
+    The base_dir should point to the novel's consistency/ folder, e.g.:
+        data/{novel_title}/consistency/
+    """
 
-    def __init__(self, base_dir: Optional[Path] = None) -> None:
-        self.base_dir = base_dir or Path("data/consistency")
+    def __init__(self, base_dir: Path) -> None:
+        """Initialize the consistency store for a specific novel.
+        
+        Args:
+            base_dir: Path to the novel's consistency directory (required).
+                      This should be the novel's consistency/ folder.
+        """
+        if base_dir is None:
+            raise ValueError("base_dir is required - each novel needs its own consistency store")
+        self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.characters_path = self.base_dir / "characters.json"
         self.locations_path = self.base_dir / "locations.json"
