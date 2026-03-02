@@ -1,81 +1,51 @@
-# ----------------------
-# OS generated files
-# ----------------------
-.DS_Store
-Thumbs.db
-desktop.ini
+# .gitignore
 
-# ----------------------
-# Logs
-# ----------------------
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# ----------------------
-# Environment variables
-# ----------------------
-.env
-.env.*
-!.env.example
-
-# ----------------------
-# Dependency directories
-# ----------------------
-node_modules/
-vendor/
-
-# ----------------------
-# Build output
-# ----------------------
-dist/
-build/
-out/
-coverage/
-
-# ----------------------
 # Python
-# ----------------------
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.sqlite3
+*$py.class
+*.so
 .venv/
 venv/
 env/
+*.egg-info/
+dist/
+build/
 
-# ----------------------
-# VS Code
-# ----------------------
+# Environment
+.env
+
+# IDE
 .vscode/
-
-# ----------------------
-# IntelliJ / JetBrains
-# ----------------------
 .idea/
-*.iml
-
-# ----------------------
-# Mac / Linux temp files
-# ----------------------
 *.swp
 *.swo
-*~
 
-# ----------------------
-# Archives
-# ----------------------
-*.zip
-*.tar
-*.gz
-*.rar
+# Data (keep structure, ignore content)
+data/novels/*/
+!data/novels/.gitkeep
 
-# ----------------------
-# Output/Data and AI
-# ----------------------
-.agent
-data/*
-!data/.gitkeep
+# Logs
+logs/
+*.log
+
+# Generated outputs
+*.mp4
+*.wav
+*.mp3
+
+# Alexandria reference (used during development only)
+alexandria-audiobook-ref/
+
+# Models (downloaded at runtime)
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Agent config
+.agent/

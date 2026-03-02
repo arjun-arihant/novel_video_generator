@@ -1,6 +1,44 @@
+# ═══════════════════════════════════════════════════════════════
+# Novel Video Generator — Dependencies
+# ═══════════════════════════════════════════════════════════════
+#
+# INSTALL ORDER MATTERS:
+#
+#   Step 1: Install PyTorch with CUDA first (choose your CUDA version):
+#     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#
+#   Step 2: Install everything else:
+#     pip install -r requirements.txt
+#
+# ═══════════════════════════════════════════════════════════════
+
+# ─── TTS Engine (Qwen3-TTS) — MUST be installed ──────────────
+qwen-tts>=0.1.1
+
+# ─── Core Pipeline ───────────────────────────────────────────
 ebooklib>=0.18
 beautifulsoup4>=4.12
 lxml>=5.0
-requests>=2.31
-rich>=13.7
 python-dotenv>=1.0
+rich>=13.7
+
+# ─── LLM Client ─────────────────────────────────────────────
+openai>=2.0
+
+# ─── TTS Supporting Libs ────────────────────────────────────
+soundfile>=0.13.0
+numpy>=2.0
+pydub>=0.25.1
+librosa>=0.11.0
+transformers>=4.50.0
+peft>=0.18.0
+
+# ─── Web UI ─────────────────────────────────────────────────
+fastapi>=0.128.0
+uvicorn>=0.30.0
+pydantic>=2.0
+python-multipart>=0.0.20
+aiofiles>=24.0
+
+# ─── Wan2GP Support ─────────────────────────────────────────
+mmgp>=3.7
